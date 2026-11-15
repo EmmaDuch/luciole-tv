@@ -1,0 +1,20 @@
+[Unit]
+Description=Luciole - serveur IPTV pour la TV
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=luciole
+Group=luciole
+WorkingDirectory=/opt/luciole
+ExecStart=/usr/bin/python3 -m luciole.server
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/luciole
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

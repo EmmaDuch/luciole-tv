@@ -1,0 +1,14 @@
+[Unit]
+Description=Luciole - annonce de l'adresse luciole.local sur le réseau
+After=avahi-daemon.service network-online.target
+Wants=network-online.target
+Requires=avahi-daemon.service
+
+[Service]
+# la machine garde son propre nom ; « luciole.local » pointe en plus vers elle
+ExecStart=/bin/sh -c 'exec avahi-publish -a -R luciole.local "$(hostname -I | cut -d" " -f1)"'
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

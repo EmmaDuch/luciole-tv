@@ -1,0 +1,17 @@
+[Unit]
+Description=Luciole - mise à jour du catalogue et du guide
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=luciole
+Group=luciole
+WorkingDirectory=/opt/luciole
+ExecStart=/usr/bin/python3 -m luciole.sync
+Nice=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/luciole
+ProtectHome=true
+PrivateTmp=true

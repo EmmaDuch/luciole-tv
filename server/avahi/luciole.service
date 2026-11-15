@@ -1,0 +1,11 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<!-- Annonce la page web de Luciole sur le réseau local (navigateurs et applis qui listent les services). -->
+<service-group>
+  <name replace-wildcards="yes">Luciole sur %h</name>
+  <service>
+    <type>_http._tcp</type>
+    <port>8765</port>
+    <txt-record>path=/</txt-record>
+  </service>
+</service-group>

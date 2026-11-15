@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230D1017'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23B6F23A'/%3E%3C/svg%3E">
+<title>Luciole – Accueil</title>
+<script>/* thème appliqué avant l'affichage, sans clignotement */
+  try { document.documentElement.className = 'theme-' + (JSON.parse(localStorage.getItem('luciole.web.theme')) || 'luciole'); }
+  catch (e) { document.documentElement.className = 'theme-luciole'; }</script>
+<style>
+  :root { --bg:#0B0D12; --card:#151922; --card2:#1B2130; --line:#262C38; --text:#F2F4F8; --muted:#9AA3B2;
+          --soft:#C4CAD4; --red:#E5575C; --green:#55C98B; --orange:#FFB37A;
+          --accent:#F5B544; --accent-rgb:245,181,68; --on-accent:#1A1204; }
+  html.theme-luciole { --accent:#B6F23A; --accent-rgb:182,242,58; --on-accent:#0F1A02; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.45 system-ui, "Segoe UI", Inter, sans-serif; }
+  body::before { content:""; position:fixed; left:-20vw; top:-30vh; width:70vw; height:70vh; pointer-events:none;
+    background:radial-gradient(closest-side, rgba(var(--accent-rgb),.10), transparent); }
+  main { position:relative; max-width:1180px; margin:0 auto; padding:28px 20px 80px; }
+  a { color:inherit; }
+  header { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .brand { display:flex; align-items:center; gap:11px; text-decoration:none; }
+  .brand-dot { width:15px; height:15px; border-radius:50%; background:var(--accent);
+    box-shadow:0 0 8px 1px rgba(var(--accent-rgb),.75), 0 0 22px 6px rgba(var(--accent-rgb),.25); }
+  h1 { margin:0; font-size:28px; letter-spacing:.01em; }
+  nav { display:flex; gap:6px; margin-left:18px; }
+  nav a { text-decoration:none; padding:8px 16px; border-radius:999px; color:var(--soft); }
+  nav a.on { background:var(--text); color:var(--bg); font-weight:600; }
+  .prefs { margin-left:auto; display:flex; gap:8px; }
+  select { font:inherit; font-size:14px; color:var(--text); background:var(--card); border:1px solid var(--line); border-radius:10px; padding:6px 10px; }
+  .hello { margin:46px 0 6px; font-size:40px; font-weight:700; line-height:1.15; }
+  .hello em { font-style:normal; color:var(--accent); }
+  .lead { margin:0 0 30px; color:var(--muted); font-size:17px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(270px, 1fr)); gap:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:18px; padding:18px 20px; display:flex; flex-direction:column; gap:10px; }
+  .card h2 { margin:0; font-size:14px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); font-weight:600; }
+  .big { font-size:34px; font-weight:700; line-height:1.1; }
+  .big small { font-size:16px; font-weight:500; color:var(--muted); margin-left:6px; }
+  .muted { color:var(--muted); font-size:14px; }
+  .row { display:flex; align-items:center; gap:10px; }
+  .srcb { display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%;
+    color:#fff; font-size:13px; font-weight:800; flex-shrink:0; }
+  .meter { height:7px; border-radius:7px; background:rgba(255,255,255,.1); overflow:hidden; }
+  .meter i { display:block; height:100%; background:var(--green); border-radius:7px; }
+  .meter.warn i { background:var(--orange); } .meter.bad i { background:var(--red); }
+  .ok { color:var(--green); } .warn { color:var(--orange); } .bad { color:#FF9DA1; }
+  .btn { display:inline-block; border:0; border-radius:10px; padding:9px 16px; background:rgba(255,255,255,.1); color:var(--text);
+    font:inherit; font-size:14px; cursor:pointer; text-decoration:none; }
+  .btn.main { background:var(--accent); color:var(--on-accent); font-weight:600; }
+  .spacer { flex:1; }
+  section { margin-top:38px; }
+  section > h3 { font-size:20px; margin:0 0 14px; }
+  .now { display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:12px; }
+  .ch { display:flex; gap:14px; align-items:center; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px 14px; }
+  .ch img { width:52px; height:52px; object-fit:contain; flex-shrink:0; }
+  .ch .ini { width:52px; height:52px; border-radius:12px; display:grid; place-items:center; font-weight:800; background:var(--card2); flex-shrink:0; }
+  .ch .t { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ch .s { font-size:13px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ch .bar { height:4px; border-radius:4px; background:rgba(255,255,255,.1); margin-top:6px; overflow:hidden; }
+  .ch .bar i { display:block; height:100%; background:var(--accent); }
+  .ch > div { min-width:0; flex:1; }
+  .links { display:grid; grid-template-columns:repeat(auto-fill, minmax(210px, 1fr)); gap:10px; }
+  .links a { display:block; text-decoration:none; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 16px; }
+  .links a:hover, .card a.btn:hover { border-color:var(--accent); }
+  .links b { display:block; }
+  .links span { font-size:13px; color:var(--muted); }
+  .empty { color:var(--muted); padding:14px 0; }
+  footer { margin-top:44px; color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <a class="brand" href="./"><span class="brand-dot"></span><h1>luciole</h1></a>
+    <nav><a href="./" class="on">Accueil</a><a href="reglages">Réglages</a></nav>
+    <div class="prefs">
+      <select id="pref-theme" aria-label="Thème"><option value="luciole">Thème Luciole</option><option value="ambre">Thème Ambre</option></select>
+      <select id="pref-lang" aria-label="Langue"><option value="fr">Français</option><option value="en">English</option></select>
+    </div>
+  </header>
+
+  <p class="hello" id="hello"></p>
+  <p class="lead" id="lead"></p>
+
+  <div class="grid">
+    <div class="card" id="c-subs"><h2>Abonnements</h2></div>
+    <div class="card" id="c-cat"><h2>Catalogue</h2></div>
+    <div class="card" id="c-tv"><h2>Téléviseur</h2></div>
+    <div class="card" id="c-lib"><h2>Bibliothèque</h2></div>
+  </div>
+
+  <section>
+    <h3>En ce moment sur vos chaînes favorites</h3>
+    <div class="now" id="now"></div>
+  </section>
+
+  <section>
+    <h3>Réglages</h3>
+    <div class="links">
+      <a href="reglages#lib"><b>Bibliothèque</b><span>Catégories et titres gardés</span></a>
+      <a href="reglages#bq"><b>Mes bouquets</b><span>Listes de chaînes à votre goût</span></a>
+      <a href="reglages#chans"><b>Chaînes</b><span>Numéros, noms et logos</span></a>
+      <a href="reglages#items"><b>Films et séries</b><span>Titres, résumés et jaquettes</span></a>
+      <a href="reglages#medias"><b>Médiathèque</b><span>Vos fichiers sur le NAS</span></a>
+      <a href="reglages#guide"><b>Guide</b><span>Sources et association des chaînes</span></a>
+      <a href="reglages#tv"><b>Téléviseur</b><span>Démarrage automatique</span></a>
+      <a href="reglages#cats"><b>Bouquets du fournisseur</b><span>Ce qui s'affiche sur la TV</span></a>
+    </div>
+  </section>
+
+  <footer id="foot"></footer>
+</main>
+
+<script src="i18n.js"></script>
+<script>
+(function () {
+  'use strict';
+  var token = new URLSearchParams(location.search).get('token') || '';
+  var $ = function (id) { return document.getElementById(id); };
+  function api(method, path, body) {
+    var o = { method: method, headers: {} };
+    if (token) o.headers['X-Luciole-Token'] = token;
+    if (body) { o.headers['Content-Type'] = 'application/json'; o.body = JSON.stringify(body); }
+    return fetch(path, o).then(function (r) {
+      return r.json().then(function (d) { if (!r.ok) throw new Error(d.error ? tr(d.error) : tr('erreur {n}', { n: r.status })); return d; });
+    });
+  }
+  function mk(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+  function img(u) { return u ? u + (token ? '&token=' + encodeURIComponent(token) : '') : ''; }
+  function when(ts) { return new Date(ts * 1000).toLocaleString(LANG === 'en' ? 'en-GB' : 'fr-BE', { dateStyle: 'medium', timeStyle: 'short' }); }
+  function hm(ts) { return new Date(ts * 1000).toLocaleTimeString(LANG === 'en' ? 'en-GB' : 'fr-BE', { hour: '2-digit', minute: '2-digit' }); }
+  function day(ts) { return new Date(ts * 1000).toLocaleDateString(LANG === 'en' ? 'en-GB' : 'fr-BE', { day: 'numeric', month: 'long', year: 'numeric' }); }
+  if (token) Array.prototype.forEach.call(document.querySelectorAll('a[href^="reglages"]'), function (a) {
+    a.href = a.getAttribute('href').replace(/^reglages/, 'reglages?token=' + encodeURIComponent(token));
+  });
+
+  var h = new Date().getHours();
+  var hello = h < 5 ? 'Bonne nuit' : (h < 12 ? 'Bonjour' : (h < 18 ? 'Bon après-midi' : 'Bonsoir'));
+  $('hello').innerHTML = tr(hello) + ' <em>·</em> ' + tr('Luciole veille sur votre télévision.');
+
+  function subs(list) {
+    var c = $('c-subs');
+    list.forEach(function (p) {
+      var a = p.account, row = mk('div', 'row');
+      var b = mk('span', 'srcb', p.letter); b.style.background = p.color;
+      row.append(b, mk('b', '', p.name));
+      row.append(mk('span', 'spacer'));
+      if (a && a.expires) {
+        var cls = a.days_left <= 7 ? 'bad' : (a.days_left <= 30 ? 'warn' : 'ok');
+        row.append(mk('b', cls, tr(a.days_left > 1 ? '{n} jours' : '{n} jour', { n: a.days_left })));
+        c.append(row);
+        var m = mk('div', 'meter' + (cls === 'ok' ? '' : ' ' + cls)), i = mk('i');
+        i.style.width = Math.max(3, Math.min(100, a.days_left / 30 * 100)) + '%'; m.append(i); c.append(m);
+        c.append(mk('div', 'muted', tr('expire le {d}', { d: day(a.expires) }) +
+          (a.max_connections ? ' · ' + tr('{a}/{m} connexions', { a: a.active_cons || 0, m: a.max_connections }) : '')));
+      } else {
+        row.append(mk('span', 'muted', a ? tr('sans date d’expiration') : tr('pas encore de réponse')));
+        c.append(row);
+      }
+      if (p.status && p.status !== 'ok') c.append(mk('div', 'bad', p.status));
+    });
+    var more = mk('a', 'btn', tr('Détails')); more.href = 'reglages#subs'; c.append(more);
+  }
+  function catalog(s) {
+    var c = $('c-cat');
+    var big = mk('div', 'big', String(s.counts.live)); big.append(mk('small', '', tr('chaînes'))); c.append(big);
+    c.append(mk('div', 'muted', tr('{v} films · {s} séries', { v: s.counts.vod, s: s.counts.series })));
+    c.append(mk('div', 'muted', s.syncing ? tr('Synchronisation en cours…')
+      : tr('Mis à jour : {d}', { d: s.catalog_sync ? when(s.catalog_sync) : tr('jamais') })));
+    var b = mk('button', 'btn main', tr('Synchroniser'));
+    b.onclick = function () { api('POST', '/api/sync', {}).then(function () { b.textContent = tr('En cours…'); b.disabled = true; }); };
+    c.append(b);
+    $('foot').textContent = 'Luciole ' + (s.version || '') + ' · ' + location.host;
+  }
+  function tv(d) {
+    var c = $('c-tv');
+    var st = d.state === 'on' ? tr('allumé') : (d.state === 'standby' ? tr('en veille') : (d.host ? tr('injoignable') : tr('non configuré')));
+    c.append(mk('div', 'big', st));
+    c.append(mk('div', 'muted', tr('Démarrage automatique : {e}', { e: tr(d.enabled ? 'activé' : 'désactivé') }) +
+      (d.host ? ' · ' + d.host : '')));
+    if (d.last) c.append(mk('div', 'muted', tr('dernier réveil : {d}', { d: d.last })));
+    var a = mk('a', 'btn', tr('Régler')); a.href = 'reglages#tv'; c.append(a);
+  }
+  function lib(d) {
+    var c = $('c-lib');
+    var big = mk('div', 'big', String(d.total)); big.append(mk('small', '', tr('titres gardés'))); c.append(big);
+    var top = d.cats.filter(function (x) { return x.count; }).sort(function (a, b) { return b.count - a.count; }).slice(0, 4);
+    c.append(mk('div', 'muted', top.length ? top.map(function (x) { return x.name + ' (' + x.count + ')'; }).join(' · ')
+      : tr('Ajoutez des titres depuis le téléviseur, bouton « Bibliothèque ».')));
+    var a = mk('a', 'btn', tr('Organiser')); a.href = 'reglages#lib'; c.append(a);
+  }
+  function nowOn(d) {
+    var box = $('now');
+    if (!d.channels.length) { box.append(mk('div', 'empty', tr('Aucune chaîne favorite. Sur le téléviseur, dans le guide, touche jaune.'))); return; }
+    d.channels.forEach(function (ch) {
+      var row = mk('div', 'ch');
+      if (ch.logo) { var i = mk('img'); i.src = img(ch.logo); i.alt = ''; row.append(i); }
+      else row.append(mk('div', 'ini', (ch.name || '?').slice(0, 2).toUpperCase()));
+      var t = mk('div');
+      t.append(mk('div', 't', ch.now ? ch.now.title : ch.name));
+      t.append(mk('div', 's', ch.num + ' · ' + ch.name + (ch.now ? ' · ' + hm(ch.now.start) + '–' + hm(ch.now.stop) : '') +
+        (ch.next ? ' · ' + tr('ensuite {t}', { t: ch.next.title }) : '')));
+      if (ch.now) {
+        var pct = Math.max(0, Math.min(100, (d.now - ch.now.start) / Math.max(1, ch.now.stop - ch.now.start) * 100));
+        var bar = mk('div', 'bar'), bi = mk('i'); bi.style.width = pct + '%'; bar.append(bi); t.append(bar);
+      }
+      row.append(t);
+      box.append(row);
+    });
+  }
+
+  api('GET', '/api/status').then(function (s) {
+    catalog(s);
+    $('lead').textContent = s.catalog_sync ? tr('Tout est prêt sur le serveur. Les réglages sont un clic plus loin.')
+      : tr('Première mise en route : le serveur prépare le catalogue.');
+  }).catch(function (e) { $('lead').textContent = tr('Erreur : {m}', { m: e.message }); });
+  api('GET', '/api/providers').then(function (d) { subs(d.providers); }).catch(function () {});
+  api('GET', '/api/tv').then(tv).catch(function () {});
+  api('GET', '/api/library?cat=-1').then(lib).catch(function () {});
+  api('GET', '/api/home').then(nowOn).catch(function () {});
+
+  $('pref-theme').value = document.documentElement.className.indexOf('ambre') >= 0 ? 'ambre' : 'luciole';
+  $('pref-theme').onchange = function () {
+    document.documentElement.className = 'theme-' + this.value;
+    try { localStorage.setItem('luciole.web.theme', JSON.stringify(this.value)); } catch (e) { /* navigation privée */ }
+  };
+  $('pref-lang').value = LANG;
+  $('pref-lang').onchange = function () {
+    try { localStorage.setItem('luciole.web.lang', JSON.stringify(this.value)); } catch (e) { /* navigation privée */ }
+    location.reload();
+  };
+  translatePage();
+})();
+</script>
+</body>
+</html>
