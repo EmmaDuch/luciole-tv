@@ -54,10 +54,12 @@ var Player = {
           ondrmevent: function () {}
         });
         this._applyRect();
-        av.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX');
+        this.setDisplay(opts.display || 'box');
         if (opts.live) {
-          try { av.setBufferingParam('PLAYER_BUFFER_FOR_PLAY', 'PLAYER_BUFFER_SIZE_IN_SECOND', 3); } catch (e) { /* optionnel */ }
-          try { av.setBufferingParam('PLAYER_BUFFER_FOR_RESUME', 'PLAYER_BUFFER_SIZE_IN_SECOND', 5); } catch (e) { /* optionnel */ }
+          // tampon : plus long = démarrage et zapping plus lents, mais moins de coupures sur un flux irrégulier
+          var buf = opts.buffer || 3;
+          try { av.setBufferingParam('PLAYER_BUFFER_FOR_PLAY', 'PLAYER_BUFFER_SIZE_IN_SECOND', buf); } catch (e) { /* optionnel */ }
+          try { av.setBufferingParam('PLAYER_BUFFER_FOR_RESUME', 'PLAYER_BUFFER_SIZE_IN_SECOND', Math.max(5, buf + 2)); } catch (e) { /* optionnel */ }
         }
         // certains flux ne rappellent jamais prepareAsync : on abandonne au bout de 25 s
         var myUrl = url;
@@ -86,6 +88,7 @@ var Player = {
     } else {
       var v = this.video;
       this._applyRect();
+      this.setDisplay(opts.display || 'box');
       v.src = url;
       v.onloadedmetadata = function () {
         self.durationSec = isFinite(v.duration) ? v.duration : 0;
@@ -97,6 +100,12 @@ var Player = {
     }
   },
 
+  /* format de l'image : box = entière (bandes noires), full = plein écran (étirée), auto = d'après la vidéo */
+  setDisplay: function (mode) {
+    this.display = DISPLAY_MODES[mode] ? mode : 'box';
+    if (this.av) { try { this.av.setDisplayMethod(DISPLAY_MODES[this.display]); } catch (e) { /* mode refusé */ } }
+    else if (this.video) this.video.style.objectFit = this.display === 'full' ? 'fill' : 'contain';
+  },
   setRect: function (rect) { this.rect = rect; this._applyRect(); },
   _applyRect: function () {
     var r = this.rect;
@@ -179,8 +188,8 @@ var Player = {
         var info = {};
         try { info = JSON.parse(t.extra_info || '{}'); } catch (e) { /* format inattendu */ }
         var lang = info.language || info.track_lang || '';
-        if (t.type === 'AUDIO') out.audio.push({ index: t.index, label: langName(lang) || tr('Piste {n}', { n: out.audio.length + 1 }) });
-        if (t.type === 'TEXT') out.text.push({ index: t.index, label: langName(lang) || tr('Sous-titres {n}', { n: out.text.length + 1 }) });
+        if (t.type === 'AUDIO') out.audio.push({ index: t.index, lang: langCode(lang), label: langName(lang) || tr('Piste {n}', { n: out.audio.length + 1 }) });
+        if (t.type === 'TEXT') out.text.push({ index: t.index, lang: langCode(lang), label: langName(lang) || tr('Sous-titres {n}', { n: out.text.length + 1 }) });
       });
       this.av.getCurrentStreamInfo().forEach(function (t) {
         if (t.type === 'AUDIO') out.curAudio = t.index;
@@ -189,6 +198,30 @@ var Player = {
     } catch (e) { /* lecteur pas prêt */ }
     if (this.subsOff) out.curText = -1;
     return out;
+  },
+  /* langues choisies d'avance : pref = { a: 'fr' ou '' (celle du flux), t: 'auto' | 'off' | 'fr'… }.
+     Une langue absente du flux ne change rien : on garde ce que le flux propose. */
+  applyLang: function (pref) {
+    if (!this.av || !pref) return;
+    var t = this.tracks(), i;
+    if (pref.a) {
+      for (i = 0; i < t.audio.length; i++) {
+        if (t.audio[i].lang === pref.a) { if (t.audio[i].index !== t.curAudio) this.selectAudio(t.audio[i].index); break; }
+      }
+    }
+    if (pref.t === 'off') { if (t.curText >= 0 || t.text.length) this.selectText(-1); }
+    else if (pref.t && pref.t !== 'auto') {
+      var hit = null;
+      for (i = 0; i < t.text.length; i++) if (t.text[i].lang === pref.t) { hit = t.text[i]; break; }
+      if (hit) this.selectText(hit.index); else if (t.text.length) this.selectText(-1);
+    }
+  },
+  /* langues en cours, pour les retenir (épisode suivant d'une série) */
+  currentLang: function () {
+    var t = this.tracks(), a = '', x = 'off', i;
+    for (i = 0; i < t.audio.length; i++) if (t.audio[i].index === t.curAudio) a = t.audio[i].lang;
+    for (i = 0; i < t.text.length; i++) if (t.text[i].index === t.curText) x = t.text[i].lang || 'auto';
+    return { a: a, t: x };
   },
   selectAudio: function (index) { try { this.av.setSelectTrack('AUDIO', index); } catch (e) { Toast.show(tr('Piste audio indisponible')); } },
   selectText: function (index) {
@@ -209,6 +242,9 @@ var Player = {
   suspend: function () { if (this.av) { try { this.av.suspend(); } catch (e) { /* état */ } } else if (this.video) this.video.pause(); },
   restore: function () { if (this.av) { try { this.av.restore(); } catch (e) { /* état */ } } }
 };
+
+var DISPLAY_MODES = { box: 'PLAYER_DISPLAY_MODE_LETTER_BOX', full: 'PLAYER_DISPLAY_MODE_FULL_SCREEN',
+  auto: 'PLAYER_DISPLAY_MODE_AUTO_ASPECT_RATIO' };
 
 function resLabel(h, w) {
   if (!h) return '';
@@ -231,6 +267,13 @@ function codecName(c) {
 var LANGS = { fr: 'Français', fre: 'Français', fra: 'Français', en: 'Anglais', eng: 'Anglais', nl: 'Néerlandais', dut: 'Néerlandais',
   nld: 'Néerlandais', de: 'Allemand', ger: 'Allemand', deu: 'Allemand', es: 'Espagnol', spa: 'Espagnol', it: 'Italien', ita: 'Italien',
   pt: 'Portugais', por: 'Portugais', ar: 'Arabe', ara: 'Arabe', tr: 'Turc', tur: 'Turc', und: '' };
+/* code de langue ramené à deux lettres : « fre », « fra » et « fr » sont la même langue */
+var LANG2 = { fre: 'fr', fra: 'fr', eng: 'en', dut: 'nl', nld: 'nl', ger: 'de', deu: 'de', spa: 'es', ita: 'it',
+  por: 'pt', ara: 'ar', tur: 'tr', und: '' };
+function langCode(code) {
+  code = String(code || '').toLowerCase().split(/[-_]/)[0];
+  return LANG2[code] !== undefined ? LANG2[code] : code;
+}
 function langName(code) {
   code = String(code || '').toLowerCase();
   return LANGS[code] !== undefined ? tr(LANGS[code]) : code.toUpperCase();

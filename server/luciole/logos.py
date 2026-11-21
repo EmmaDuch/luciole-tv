@@ -108,8 +108,10 @@ def _maxchannel(img):
     return ImageChops.lighter(ImageChops.lighter(r, g), b)
 
 
-def process(img, size):
-    """Image PIL quelconque -> carré RGBA de size × size."""
+def process(img, size, tight=False):
+    """Image PIL quelconque -> carré RGBA de size × size.
+    tight : pas de carré, le logo seul au plus près (au plus size de large ou de haut),
+    pour l'afficher en grand là où sa forme compte (barre du direct)."""
     img.load()
     if _has_alpha(img):
         work = img.convert("RGBA")
@@ -126,6 +128,17 @@ def process(img, size):
     w, h = work.size
     if not w or not h:
         return Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    if tight:
+        if max(w, h) > size:
+            work = work.resize((max(1, round(w * size / max(w, h))), max(1, round(h * size / max(w, h)))), Image.LANCZOS)
+        pad = max(2, max(work.size) // 40) if _too_dark(work) else 2
+        out = Image.new("RGBA", (work.width + 2 * pad, work.height + 2 * pad), (0, 0, 0, 0))
+        if _too_dark(work):
+            ImageDraw.Draw(out).rounded_rectangle((0, 0, out.width - 1, out.height - 1), radius=pad * 2,
+                                                  fill=(232, 236, 242, 255))
+        layer = Image.new("RGBA", out.size, (0, 0, 0, 0))
+        layer.paste(work, (pad, pad))
+        return Image.alpha_composite(out, layer)
     scale = min(MARGIN * size / w, MARGIN * size / h, (FILL * size * size / (w * h)) ** 0.5)
     nw, nh = max(1, round(w * scale)), max(1, round(h * scale))
     work = work.resize((nw, nh), Image.LANCZOS)

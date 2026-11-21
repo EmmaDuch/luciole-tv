@@ -16,8 +16,10 @@ L'adresse se change plus tard dans **Réglages › Serveur Luciole**.
 ## L'accueil
 
 En haut, les rubriques : **Accueil**, **En direct**, **Films**, **Séries**, **Bibliothèque**, puis la recherche
-et les réglages. Le grand bandeau reprend ce que vous regardiez (un film commencé, l'épisode suivant d'une série),
-puis les films ajoutés récemment. Gauche et droite font défiler le bandeau.
+et les réglages. Le grand bandeau montre les **nouveautés de vos abonnements** : quatre films et quatre séries, pris dans
+le bouquet « Nouveautés » du fournisseur s'il en a un, sinon les derniers ajoutés. Votre médiathèque n'y figure pas. Gauche et droite font défiler le bandeau ; **Regarder** lance le film
+(ou la série, là où vous en êtes), **Voir la fiche** l'ouvre. Ce que vous regardiez est juste en dessous,
+dans « Reprendre la lecture ».
 
 En dessous : vos chaînes favorites avec leur programme en cours, les lectures à reprendre,
 les films ajoutés récemment et les séries mises à jour.
@@ -67,7 +69,8 @@ Elle s'efface au bout de quelques secondes.
 | 0 à 9 | aller à un numéro |
 | Gauche | liste rapide des chaînes, à gauche de l'écran |
 | Droite | la mosaïque |
-| OK | barre complète : Accueil, Guide, Mosaïque, Depuis le début, Replay, pistes audio et sous-titres |
+| OK | barre complète : Accueil, Guide, Mosaïque, Depuis le début, Replay, format de l'image, pistes audio et sous-titres |
+| Gauche, puis la première ligne | changer de bouquet (la mosaïque : touche bleue) |
 | Guide | guide des programmes de la chaîne |
 | Jaune | favori |
 | Vert | replay |
@@ -160,7 +163,8 @@ Pour les films et séries de votre médiathèque rangés à la manière de Kodi,
   et les fichiers `…-featurette`, `…-interview`, `…-deleted` apparaissent dans un bouton **Bonus** de la fiche ;
   ils ne se mélangent plus aux films ;
 - **Logo** : un `…-clearlogo.png` remplace le titre écrit en haut de la fiche ; `…-poster` et `…-fanart`
-  donnent l'affiche et le fond.
+  donnent l'affiche et le fond. Sans fichier, et avec une clé TMDB, Luciole prend le logo de TMDB, pour les films
+  et séries de la médiathèque comme pour ceux de vos abonnements.
 
 ![Un logo à la place du titre](../images/37-fiche-film-logo.png)
 
@@ -231,6 +235,12 @@ Chaînes, films et séries d'un coup, dès deux lettres. Les accents ne comptent
 - **Démarrage automatique** : voir plus bas.
 - **Langue** : français ou anglais. Les titres des programmes, films et séries restent dans la langue du fournisseur.
 - **Thème** : Luciole (vert) ou Ambre.
+- **Langue audio et sous-titres** : une langue audio et un choix de sous-titres (désactivés, ceux du flux, ou une langue)
+  pour le direct, les films et les séries. Si la langue manque dans le flux, il garde la sienne.
+  Dans une série, un changement fait pendant un épisode suit les épisodes suivants.
+- **Mémoire tampon du direct** : 3 s par défaut ; 8, 15 ou 30 s si une chaîne se coupe souvent.
+  Le démarrage et le zapping prennent alors un peu plus de temps.
+- **Taille des sous-titres** : petite, moyenne, grande ou très grande.
 - **Qualité des films de la médiathèque** : la meilleure lisible (par défaut), 1080p au plus, ou 720p au plus.
   Pour un film en plusieurs versions ; utile si le réseau peine avec le 4K.
 - **Aperçu vidéo dans le guide** : la chaîne se lance en petit quand on s'arrête dessus.
@@ -239,6 +249,20 @@ Chaînes, films et séries d'un coup, dès deux lettres. Les accents ne comptent
 Langue et thème du téléviseur sont indépendants de ceux de la page web.
 
 ![Les réglages sur le téléviseur](../images/17-reglages-tv.png)
+
+## Code parental
+
+Pour les chaînes, films ou séries pour adultes : sur la page web, section **Bouquets du fournisseur**,
+choisissez un code de 4 à 8 chiffres, puis cliquez **Verrouiller** sur les bouquets concernés
+(ou sur vos propres bouquets, dans **Mes bouquets**).
+
+Sur la TV, un bouquet verrouillé garde son nom avec un cadenas. Ses chaînes et ses titres n'apparaissent
+nulle part ailleurs : ni dans « Toutes les chaînes », ni dans la recherche, l'accueil, la reprise ou les favoris.
+L'ouvrir avec OK demande le code, à taper avec les chiffres de la télécommande. Une fois tapé, tout reste ouvert
+jusqu'à la fermeture de Luciole ; **Réglages › Code parental** permet de tout refermer plus tôt.
+
+C'est un contrôle parental, pas un coffre-fort : il empêche d'y arriver avec la télécommande. La page web,
+elle, voit tout (c'est de là qu'on règle), et changer un verrou ou le code demande le code actuel.
 
 ## Démarrage automatique
 

@@ -134,12 +134,12 @@ def preview(db, limit=40, kind="live"):
     return {"changed": out, "unchanged": same}
 
 
-_ITEM_FIELDS = ("name", "plot", "poster", "backdrop")
+_ITEM_FIELDS = ("name", "plot", "poster", "backdrop", "logo", "trailer")
 
 
 def edit_item(db, kind, item_id, **changes):
     """Corrige une fiche. Chaque champ passé à vide revient à la valeur du fournisseur ;
-    un champ absent n'est pas touché. Champs : name, plot, poster, backdrop."""
+    un champ absent n'est pas touché. Champs : name, plot, poster, backdrop, logo, trailer."""
     if kind not in ("vod", "series"):
         raise ValueError("kind doit valoir vod ou series")
     bad = set(changes) - set(_ITEM_FIELDS)
@@ -152,7 +152,7 @@ def edit_item(db, kind, item_id, **changes):
             db.execute(f"UPDATE item_override SET {field}=? WHERE kind=? AND id=?", (value, kind, item_id))
         # plus rien de personnel : la ligne n'a plus de raison d'exister
         db.execute("DELETE FROM item_override WHERE kind=? AND id=? AND name IS NULL AND plot IS NULL "
-                   "AND poster IS NULL AND backdrop IS NULL", (kind, item_id))
+                   "AND poster IS NULL AND backdrop IS NULL AND logo IS NULL AND trailer IS NULL", (kind, item_id))
     apply(db)
 
 
@@ -162,7 +162,7 @@ def rename_item(db, kind, item_id, name=None):
 
 
 def item_override(db, kind, item_id):
-    r = db.execute("SELECT name, plot, poster, backdrop FROM item_override WHERE kind=? AND id=?",
+    r = db.execute("SELECT name, plot, poster, backdrop, logo, trailer FROM item_override WHERE kind=? AND id=?",
                    (kind, item_id)).fetchone()
     return {k: (r[k] if r else None) for k in _ITEM_FIELDS}
 
@@ -245,7 +245,7 @@ def reset_names(db, kind="all"):
             where = "" if kind == "all" else " WHERE kind='%s'" % kind
             db.execute("UPDATE item_override SET name = NULL" + where)
             db.execute("DELETE FROM item_override WHERE name IS NULL AND plot IS NULL AND poster IS NULL "
-                       "AND backdrop IS NULL")
+                       "AND backdrop IS NULL AND logo IS NULL AND trailer IS NULL")
         if kind in ("all", "cat"):
             db.execute("DELETE FROM cat_rename")
     apply(db)

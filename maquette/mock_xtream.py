@@ -266,7 +266,7 @@ def handler_for(cat, cache):
                                          "info": {"plot": "Résumé de l'épisode %d." % e, "duration_secs": 60,
                                                   "movie_image": host + "/img/backdrop/e%d.jpg" % (sid * 100 + season * 10 + e)}}
                                         for e in range(1, 7)]
-                return self.json({"info": {"name": "Série", "plot": "Une série de démonstration."}, "episodes": eps})
+                return self.json({"info": {"name": "Série", "plot": "Une série de démonstration.", "director": "Maquette", "cast": "Actrice C, Acteur D"}, "episodes": eps})
             if a == "get_simple_data_table":
                 ch = next((x for x in cat.live if str(x["stream_id"]) == q.get("stream_id")), None)
                 if not ch:

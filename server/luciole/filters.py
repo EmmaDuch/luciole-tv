@@ -6,6 +6,7 @@ Deux sources, la seconde l'emporte :
 """
 import fnmatch
 
+from . import lock
 from .common import norm
 
 PREFIX = {"live": "direct", "vod": "films", "series": "series"}
@@ -42,4 +43,6 @@ def apply(db, cfg):
 def visible(kind, column="cat"):
     """Fragment SQL : seulement les titres des bouquets visibles."""
     assert kind in PREFIX
-    return f"{column} NOT IN (SELECT id FROM categories WHERE kind='{kind}' AND hidden=1)"
+    # et rien de ce qui est fermé par le code parental, tant que le téléviseur ne l'a pas ouvert
+    return (f"({column} NOT IN (SELECT id FROM categories WHERE kind='{kind}' AND hidden=1) "
+            f"AND {lock.sql(kind, column)})")

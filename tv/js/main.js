@@ -88,6 +88,7 @@
   /* démarrage */
   document.documentElement.lang = LANG;
   applyTheme(Store.get('theme', 'luciole'));
+  applySubSize(Store.get('subSize', 'm'));
   registerKeys();
   Player.init();
   API.load();

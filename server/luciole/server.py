@@ -13,7 +13,7 @@ import urllib.parse
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import UA, __version__, artwork, bouquets, convert, custom, epg_ext, filters, library, medias, providers, sync, tvwake
+from . import UA, __version__, artwork, bouquets, convert, custom, epg_ext, filters, library, lock, manual, medias, providers, sync, tvwake
 from .common import connect, load_config, merge_hosts, norm, now, to_float, to_int
 from .filters import visible
 from .images import ImageCache
@@ -83,9 +83,11 @@ class Luciole:
         self.reg = providers.Registry(cfg, self.db)
         self.images = ImageCache(cfg, lambda: self.db)
         self._sync_thread = None
+        self._prefetching = set()
         self.media_job = None
         self.converter = convert.Converter(cfg)
         self.watcher = None
+        manual.publish(self.db)
         filters.apply(self.db, cfg)  # la config a pu changer depuis la dernière synchro
         custom.seed_rules(self.db)
         epg_ext.apply_map(self.db)
@@ -164,8 +166,13 @@ class Luciole:
             for ep in self._episodes_flat(data):
                 if ep.get("id") not in (None, ""):
                     ep["id"] = providers.gid(src, to_int(ep.get("id")))
-        with self.db:
-            self.db.execute("INSERT OR REPLACE INTO info_cache VALUES (?,?,?,?)",
+        self._store_info(self.db, kind, item_id, data)
+        return data
+
+    def _store_info(self, db, kind, item_id, data):
+        """Fiche détaillée en cache, et les serveurs de ses images ajoutés à ceux qu'on a le droit de relayer."""
+        with db:
+            db.execute("INSERT OR REPLACE INTO info_cache VALUES (?,?,?,?)",
                             (kind, item_id, json.dumps(data), now()))
             hosts = set()
             for ep in self._episodes_flat(data) if kind == "series" else []:
@@ -177,8 +184,33 @@ class Luciole:
                 hosts.add(urllib.parse.urlsplit(b or "").hostname)
             hosts.discard(None)
             hosts.discard("")
-            merge_hosts(self.db, hosts)
-        return data
+            merge_hosts(db, hosts)
+
+    def _prefetch_info(self, kind, ids):
+        """Fiches demandées au fournisseur en arrière-plan (l'accueil n'attend pas) : au passage suivant,
+        leur vrai fond est connu."""
+        todo = [i for i in ids if i and i < medias.BASE and i not in self._prefetching]
+        if not todo:
+            return
+        self._prefetching.update(todo)
+
+        def run():
+            db = connect(self.cfg)
+            try:
+                for item_id in todo:
+                    try:
+                        xt, raw, _ = self.reg.resolve(item_id)
+                        data = xt.api("get_vod_info" if kind == "vod" else "get_series_info",
+                                      **({"vod_id": raw} if kind == "vod" else {"series_id": raw}))
+                        if isinstance(data, dict) and kind == "vod":
+                            self._store_info(db, kind, item_id, data)
+                    except Exception:
+                        pass
+            finally:
+                db.close()
+                self._prefetching.difference_update(todo)
+
+        threading.Thread(target=run, name="fiches", daemon=True).start()
 
     @staticmethod
     def _episodes_flat(data):
@@ -251,6 +283,61 @@ class Luciole:
                         "archive_days": r["archive_days"] or 0, "orig_name": r["orig_name"], "orig_num": r["orig_num"],
                         "quality": _quality(r["orig_name"]),
                         "now": progs[0] if progs else None, "next": progs[1] if len(progs) > 1 else None})
+        return out
+
+    def _hero_backdrop(self, kind, row):
+        """Le fond de l'accueil : un vrai fond si on le connaît déjà (fiche corrigée, médiathèque ou fiche
+        du fournisseur en cache), sinon la jaquette en grand. Jamais d'appel au fournisseur ici : l'accueil reste rapide."""
+        if row["backdrop"]:
+            return self.img(row["backdrop"], 1920)
+        c = self.db.execute("SELECT json FROM info_cache WHERE kind=? AND id=?", (kind, row["id"])).fetchone()
+        if c:
+            try:
+                info = json.loads(c["json"]).get("info") or {}
+                b = info.get("backdrop_path")
+                b = b[0] if isinstance(b, list) and b else (b if isinstance(b, str) else None)
+                if b:
+                    return self.img(b, 1920)
+            except (ValueError, AttributeError):
+                pass
+        elif kind == "vod":
+            self._prefetch_info(kind, [row["id"]])
+        return self.img(row["poster"], 780)
+
+    def _recent_movies(self):
+        rows = list(self.db.execute(f"SELECT * FROM vod WHERE {visible('vod')} ORDER BY added DESC LIMIT 20"))
+        items = self._vod_items(rows)
+        for it, r in zip(items[:4], rows[:4]):          # les quatre premiers passent en grand à l'accueil
+            it["backdrop"] = self._hero_backdrop("vod", r)
+        return items
+
+    _NEW_CAT = re.compile(r"nouveaut|new release|recently added|derniers? ajouts?|latest", re.I)
+
+    def _hero(self, n=4):
+        """Le carrousel de l'accueil : les nouveautés des abonnements (pas la médiathèque, qu'on connaît déjà).
+        n films et n séries, pris dans le bouquet « Nouveautés » du fournisseur s'il en a un,
+        sinon les derniers ajoutés ; films et séries alternés."""
+        def pick(kind, table, col):
+            cats = [r["id"] for r in self.db.execute(
+                "SELECT id, name FROM categories WHERE kind=? AND src>0 AND hidden=0", (kind,)) if self._NEW_CAT.search(r["name"] or "")]
+            where = f"{visible(table)} AND id < ?"
+            args = [medias.BASE]
+            rows = []
+            if cats:
+                rows = list(self.db.execute(f"SELECT * FROM {table} WHERE {where} AND cat IN ({','.join('?' * len(cats))}) "
+                                            f"ORDER BY {col} DESC LIMIT ?", args + cats + [n]))
+            if not rows:
+                rows = list(self.db.execute(f"SELECT * FROM {table} WHERE {where} ORDER BY {col} DESC LIMIT ?", args + [n]))
+            return rows
+        movies, shows = pick("vod", "vod", "added"), pick("series", "series", "updated")
+        out = []
+        for i in range(max(len(movies), len(shows))):
+            for kind, rows, col in (("movie", movies, "added"), ("series", shows, "updated")):
+                if i < len(rows):
+                    r = rows[i]
+                    out.append({"kind": kind, "id": r["id"], "name": r["name"], "poster": self.img(r["poster"], 240),
+                                "backdrop": self._hero_backdrop("vod" if kind == "movie" else "series", r),
+                                "added": r[col] or 0, "local": False})
         return out
 
     def _vod_items(self, rows):
@@ -343,8 +430,12 @@ class Luciole:
             f"{'AND c.src = ?' if src else ''} GROUP BY c.id ORDER BY c.src = 0 DESC, c.src, c.pos",
             (kind, src) if src else (kind,))
         manual = {r["id"] for r in self.db.execute("SELECT id FROM cat_override WHERE kind=?", (kind,))}
+        locked = lock.refs(self.db, kind)
+        for b in own:
+            b["locked"] = lock.bouquet_ref(b["bouquet"]) in locked
         return own + [{"id": r["id"], "name": r["name"], "orig_name": r["orig_name"] or r["name"], "count": r["n"],
-                       "hidden": bool(r["hidden"]), "manual": r["id"] in manual, "own": False, "src": r["src"]}
+                       "hidden": bool(r["hidden"]), "manual": r["id"] in manual, "own": False, "src": r["src"],
+                       "locked": str(r["id"]) in locked}
                       for r in rows]
 
     # ---------- personnalisation : noms et numéros ----------
@@ -409,10 +500,65 @@ class Luciole:
         return [{"id": r["id"], "num": r["num"], "name": r["name"], "orig_num": r["orig_num"], "src": r["src"],
                  "orig_name": r["orig_name"], "logo": self.logo(r["logo"] or r["alt_logo"], 96), "cat": r["cat"],
                  "cat_name": r["cat_name"] or "", "hidden": bool(r["cat_hidden"]),
-                 "custom": r["custom"] is not None, "archive": bool(r["archive"]),
+                 "custom": r["custom"] is not None, "archive": bool(r["archive"]), "manual": manual.is_manual(r["id"]),
                  "quality": _quality(r["orig_name"]), "epg": r["xname"] or ("" if r["xid"] else ""),
                  "epg_manual": bool(r["xid"]) and not r["xauto"]}
                 for r in self.db.execute(sql, args)]
+
+    # ---------- chaînes ajoutées à la main ----------
+    def manual_list(self, q):
+        return manual.listing(self.db)
+
+    def _manual_done(self, ids, bouquet):
+        """Après un ajout : publication, guide associé par le nom si possible, et bouquet choisi."""
+        manual.publish(self.db)
+        filters.apply(self.db, self.cfg)
+        epg_ext.apply_map(self.db)
+        added = 0
+        if bouquet:
+            bid = self._bq({"id": bouquet})
+            if (bouquets.kind_of(self.db, bid) or "live") != "live":
+                raise ApiError(400, "ce bouquet ne contient pas de chaînes")
+            added = bouquets.add(self.db, bid, ids)
+        return {"ok": True, "added": len(ids), "in_bouquet": added, "ids": ids}
+
+    def manual_add(self, q, body):
+        try:
+            gid = manual.add(self.db, body.get("name"), body.get("url"), body.get("logo") or "", body.get("num"))
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        return self._manual_done([gid], to_int(body.get("bouquet")))
+
+    def manual_import(self, q, body):
+        text = body.get("text") or ""
+        if not text.strip() and body.get("url"):
+            try:
+                text = manual.fetch_m3u(body["url"], self.cfg["sync"]["timeout"] * 2)
+            except ValueError as e:
+                raise ApiError(400, str(e))
+            except Exception as e:
+                raise ApiError(502, "liste injoignable : %s" % e)
+        entries = manual.parse_m3u(text)
+        if not entries:
+            raise ApiError(400, "aucune chaîne trouvée dans cette liste (format #EXTINF attendu)")
+        have = {m["url"] for m in manual.listing(self.db)}
+        ids = [manual.add(self.db, name, url, logo) for name, url, logo, _ in entries if url not in have]
+        return self._manual_done(ids, to_int(body.get("bouquet")))
+
+    def manual_edit(self, q, body):
+        chan_id = to_int(body.get("id"))
+        if not manual.is_manual(chan_id) or not manual.url_of(self.db, chan_id):
+            raise ApiError(404, "chaîne inconnue")
+        try:
+            manual.edit(self.db, chan_id, url=body.get("url"))
+        except ValueError as e:
+            raise ApiError(400, str(e))
+        return {"ok": True}
+
+    def manual_remove(self, q, body):
+        n = manual.remove(self.db, body.get("ids") or [])
+        manual.publish(self.db)
+        return {"ok": True, "removed": n}
 
     # ---------- bouquets personnels ----------
     def bouquets_list(self, q):
@@ -673,6 +819,7 @@ class Luciole:
                         "versions": r["nver"] or 1, "vod": medias.BASE + (r["grp"] or r["id"]) if r["kind"] == "movie" else 0,
                         "version_label": medias.version_label(r) if r["kind"] == "movie" else "",
                         "pref": bool(r["pref"]) and r["pref"] == r["id"], "has_pref": bool(r["pref"]),
+                        "vlabel": r["vlabel"] or "", "edition": medias.edition(r["path"]) if r["kind"] == "movie" else "",
                         "size": r["size"]})
         return {"items": out}
 
@@ -862,20 +1009,23 @@ class Luciole:
                 "orig_name": row.get("orig_name") or "", "plot": plot,
                 "orig_plot": row.get("orig_plot") or "",
                 "poster": self.img(row.get("poster"), 320), "backdrop": self.img(backdrop, 640),
+                "logo": self.img(over.get("logo") or "", 400), "trailer": over.get("trailer") or "",
                 "local": item_id >= medias.BASE,
                 "manual": {k: bool(v) for k, v in over.items()}}
 
     def edit_item(self, q, body):
         """Corrige une fiche. Un champ absent n'est pas touché, un champ vide revient au fournisseur."""
         kind, item_id = body.get("kind", "vod"), to_int(body.get("id"))
-        changes = {k: body[k] for k in ("name", "plot", "poster", "backdrop") if k in body}
+        changes = {k: body[k] for k in ("name", "plot", "poster", "backdrop", "trailer") if k in body}
+        if (changes.get("trailer") or "").strip() and not _youtube_id(changes["trailer"]):
+            raise ApiError(400, "lien YouTube non reconnu (https://www.youtube.com/watch?v=…, https://youtu.be/…)")
         if not item_id:
             raise ApiError(400, "id est requis")
         try:
             custom.edit_item(self.db, kind, item_id, **changes)
         except ValueError as e:
             raise ApiError(400, str(e))
-        for slot in ("poster", "backdrop"):
+        for slot in ("poster", "backdrop", "logo"):
             if slot in changes and not (changes[slot] or "").strip():
                 artwork.forget(self.cfg, kind, item_id, slot)
         return self.item_detail({"kind": kind, "id": item_id})
@@ -888,6 +1038,8 @@ class Luciole:
         if kind == "live":
             r = self.db.execute("SELECT logo, alt_logo FROM live WHERE id=?", (item_id,)).fetchone()
             src = (r["logo"] or r["alt_logo"]) if r else ""
+        elif slot == "logo":
+            return {"ok": True, "img": self.img(custom.item_override(self.db, kind, item_id).get("logo") or "", 400)}
         else:
             r = self.db.execute(f"SELECT {slot} AS src FROM {kind} WHERE id=?", (item_id,)).fetchone()
             src = r["src"] if r else ""
@@ -975,7 +1127,7 @@ class Luciole:
             raise ApiError(400, "aucune clé TMDB dans la configuration")
         tid = to_int(q.get("tmdb"))
         kind = "movie" if q.get("kind", "vod") == "vod" else "tv"
-        slot = "backdrop" if q.get("slot") == "backdrop" else "poster"
+        slot = q.get("slot") if q.get("slot") in ("backdrop", "logo") else "poster"
         if not tid:
             raise ApiError(400, "titre TMDB manquant")
         try:
@@ -987,13 +1139,13 @@ class Luciole:
             order = {None: 0, lang: 1, "en": 2}
         else:                        # une jaquette dans la langue de l'interface d'abord
             order = {lang: 0, "en": 1, None: 2}
-        imgs = sorted(data.get("backdrops" if slot == "backdrop" else "posters") or [],
+        imgs = sorted(data.get({"backdrop": "backdrops", "logo": "logos"}.get(slot, "posters")) or [],
                       key=lambda i: (order.get(i.get("iso_639_1"), 3), -(i.get("vote_average") or 0)))
         out = []
         for i in imgs[:48]:
             url = tm.poster(i.get("file_path"))
             if url:
-                out.append({"url": url, "img": self.img(url, 480 if slot == "backdrop" else 240),
+                out.append({"url": url, "img": self.img(url, 480 if slot != "poster" else 240),
                             "lang": i.get("iso_639_1") or "", "w": i.get("width"), "h": i.get("height")})
         return {"images": out}
 
@@ -1117,29 +1269,31 @@ class Luciole:
         for r in self.db.execute("SELECT * FROM progress WHERE kind='movie' AND done=0 AND position > 30 "
                                  "ORDER BY updated DESC LIMIT 12"):
             v = self.db.execute("SELECT * FROM vod WHERE id=?", (r["id"],)).fetchone()
-            if v:
+            if v and not lock.blocked(self.db, "vod", v["id"], v["cat"]):
                 cont.append({"kind": "movie", "id": v["id"], "name": v["name"], "poster": self.img(v["poster"], 240),
-                             "backdrop": self.img(v["poster"], 1280), "progress": self._prog(r),
+                             "backdrop": self._hero_backdrop("vod", v), "progress": self._prog(r),
                              "updated": r["updated"]})
         for r in self.db.execute("SELECT series_id, MAX(updated) AS u FROM progress WHERE kind='episode' "
                                  "GROUP BY series_id ORDER BY u DESC LIMIT 12"):
             s = self.db.execute("SELECT * FROM series WHERE id=?", (r["series_id"],)).fetchone()
-            resume = s and self._series_resume(s["id"])
+            resume = s and not lock.blocked(self.db, "series", s["id"], s["cat"]) and self._series_resume(s["id"])
             if resume:
                 cont.append({"kind": "series", "id": s["id"], "name": s["name"], "poster": self.img(s["poster"], 240),
                              "backdrop": self.img(s["backdrop"] or s["poster"], 1280), "resume": resume,
                              "progress": resume["progress"], "updated": resume["updated"]})
         cont.sort(key=lambda x: -x["updated"])
-        fav = self.db.execute("SELECT l.* FROM live l JOIN fav_channels f ON f.id = l.id ORDER BY f.pos, l.num, l.src")
+        fav = self.db.execute("SELECT l.* FROM live l JOIN fav_channels f ON f.id = l.id "
+                              f"WHERE {lock.sql('live', 'l.cat')} ORDER BY f.pos, l.num, l.src")
         return {"now": now(), "continue": cont[:12], "channels": self._channels(fav),
-                "recent_movies": self._vod_items(self.db.execute(f"SELECT * FROM vod WHERE {visible('vod')} ORDER BY added DESC LIMIT 20")),
+                "hero": self._hero(),
+                "recent_movies": self._recent_movies(),
                 "recent_series": self._series_items(
                     self.db.execute(f"SELECT * FROM series WHERE {visible('series')} ORDER BY updated DESC LIMIT 20"))}
 
     def _live_sql(self, cat, src=0):
         """Requête des chaînes d'une catégorie, d'un bouquet personnel ou de tout le direct.
         src : seulement les chaînes de cet abonnement (0 = tous, mélangés)."""
-        only = " AND l.src = %d" % int(src) if src else ""
+        only = (" AND l.src = %d" % int(src) if src else "") + " AND " + lock.sql("live", "l.cat")
         order = "l.num, l.src, l.name"
         bq = bouquets.parse_id(cat)
         if bq is not None:
@@ -1162,6 +1316,7 @@ class Luciole:
                 (str(cat),))
 
     def live(self, q):
+        self._cat_closed("live", q.get("cat", "all"))
         sql, args = self._live_sql(q.get("cat", "all"), to_int(q.get("src")))
         return {"now": now(), "channels": self._channels(self.db.execute(sql, args))}
 
@@ -1172,6 +1327,7 @@ class Luciole:
         end = start + hours * 3600
         limit = min(150, max(1, to_int(q.get("limit"), 60)))
         offset = max(0, to_int(q.get("offset")))
+        self._cat_closed("live", q.get("cat", "all"))
         sql, args = self._live_sql(q.get("cat", "all"), to_int(q.get("src")))
         total = self.db.execute(f"SELECT COUNT(*) FROM ({sql})", args).fetchone()[0]
         rows = list(self.db.execute(f"{sql} LIMIT ? OFFSET ?", (*args, limit, offset)))
@@ -1202,6 +1358,7 @@ class Luciole:
         r = self.db.execute("SELECT * FROM live WHERE id=?", (to_int(q.get("id")),)).fetchone()
         if not r:
             raise ApiError(404, "chaîne inconnue")
+        self._closed("live", r["id"], r["cat"])
         item = self._channels([r])[0]
         desc = self.db.execute("SELECT name FROM epg_chan c JOIN epg_map m ON m.src = c.src AND m.xid = c.xid "
                                "WHERE m.chan = ? LIMIT 1", (r["id"],)).fetchone()
@@ -1221,6 +1378,7 @@ class Luciole:
         ch = self.db.execute("SELECT epg_id, epg_key FROM live WHERE id=?", (to_int(q.get("id")),)).fetchone()
         if not ch:
             raise ApiError(404, "chaîne inconnue")
+        self._closed("live", to_int(q.get("id")))
         hours = min(48, max(1, to_int(q.get("hours"), 24)))
         back = min(12, max(0, to_int(q.get("back"))))
         rows = self.db.execute("SELECT start, stop, title, descr, icon, categ FROM epg "
@@ -1232,6 +1390,7 @@ class Luciole:
 
     def _paged(self, q, table, recent_col):
         cat = q.get("cat", "all")
+        self._cat_closed("vod" if table == "vod" else "series", cat)
         limit = min(200, max(1, to_int(q.get("limit"), 60)))
         offset = max(0, to_int(q.get("offset")))
         order = f"{recent_col} DESC" if q.get("sort", "recent") == "recent" else "norm"
@@ -1240,10 +1399,11 @@ class Luciole:
         if bid is not None:
             if bouquets.kind_of(self.db, bid) != kind:
                 raise ApiError(404, "bouquet inconnu")
+            shut = lock.sql(kind, "t.cat")
             total = self.db.execute("SELECT COUNT(*) FROM bouquet_items i "
-                                    f"JOIN {table} t ON t.id = i.chan WHERE i.bouquet = ?", (bid,)).fetchone()[0]
+                                    f"JOIN {table} t ON t.id = i.chan WHERE i.bouquet = ? AND {shut}", (bid,)).fetchone()[0]
             rows = self.db.execute("SELECT t.* FROM bouquet_items i "
-                                   f"JOIN {table} t ON t.id = i.chan WHERE i.bouquet = ? "
+                                   f"JOIN {table} t ON t.id = i.chan WHERE i.bouquet = ? AND {shut} "
                                    "ORDER BY i.pos LIMIT ? OFFSET ?", (bid, limit, offset))
             return total, rows
         where, args = ((f"WHERE {visible(kind)}", ()) if cat in ("all", "recent")
@@ -1261,11 +1421,67 @@ class Luciole:
         total, rows = self._paged(q, "series", "updated")
         return {"total": total, "items": self._series_items(rows)}
 
+    def _tmdb_logo(self, kind, tmdb):
+        """Logo transparent du titre sur TMDB (kind : movie ou tv), gardé en base ; '' s'il n'y en a pas.
+        Un titre sans logo est redemandé au bout de 30 jours, une erreur au bout d'un jour."""
+        if not tmdb:
+            return ""
+        t = now()
+        r = self.db.execute("SELECT url, ts FROM tmdb_logo WHERE kind=? AND tmdb=?", (kind, tmdb)).fetchone()
+        if r and (r["url"] or t - r["ts"] < 30 * 86400):
+            return r["url"]
+        tm = medias.Tmdb(self.cfg)
+        if not tm.ready():
+            return ""
+        try:
+            url = tm.poster(medias.pick_logo(tm.images(kind, tmdb), tm.lang or "fr"))
+            ts = t
+        except Exception as e:                      # TMDB injoignable : on réessaiera demain
+            log.info("logo TMDB %s %s : %s", kind, tmdb, e)
+            url, ts = "", t - 29 * 86400
+        with self.db:
+            self.db.execute("INSERT OR REPLACE INTO tmdb_logo(kind, tmdb, url, ts) VALUES (?,?,?,?)", (kind, tmdb, url, ts))
+        return url
+
+    def _tmdb_people(self, kind, tmdb):
+        """(réalisation, distribution) d'un titre sur TMDB, gardés en base comme les logos."""
+        if not tmdb:
+            return "", ""
+        t = now()
+        r = self.db.execute("SELECT director, cast_, ts FROM tmdb_people WHERE kind=? AND tmdb=?", (kind, tmdb)).fetchone()
+        if r and ((r["director"] or r["cast_"]) or t - r["ts"] < 30 * 86400):
+            return r["director"] or "", r["cast_"] or ""
+        tm = medias.Tmdb(self.cfg)
+        if not tm.ready():
+            return "", ""
+        try:
+            direct, cast = medias._people(tm.movie(tmdb) if kind == "movie" else tm.tv(tmdb))
+            ts = t
+        except Exception as e:
+            log.info("distribution TMDB %s %s : %s", kind, tmdb, e)
+            direct, cast, ts = "", "", t - 29 * 86400
+        with self.db:
+            self.db.execute("INSERT OR REPLACE INTO tmdb_people(kind, tmdb, director, cast_, ts) VALUES (?,?,?,?,?)",
+                            (kind, tmdb, direct, cast, ts))
+        return direct, cast
+
+    def _title_extras(self, kind, item_id, item, tmdb, local_logo=""):
+        """Logo du titre et bande-annonce : ce qui est choisi à la main, sinon le fichier posé à côté,
+        sinon TMDB."""
+        over = custom.item_override(self.db, kind, item_id)
+        logo = over.get("logo") or local_logo or self._tmdb_logo("movie" if kind == "vod" else "tv", tmdb)
+        item["logo"] = self.img(logo, 800) if logo else ""
+        if not item.get("director") and not item.get("cast"):
+            item["director"], item["cast"] = self._tmdb_people("movie" if kind == "vod" else "tv", tmdb)
+        if over.get("trailer"):
+            item["trailer"] = _youtube_id(over["trailer"])
+
     def movie(self, q):
         mid = to_int(q.get("id"))
         v = self.db.execute("SELECT * FROM vod WHERE id=?", (mid,)).fetchone()
         if not v:
             raise ApiError(404, "film inconnu")
+        self._closed("vod", mid, v["cat"])
         info = (self._info("vod", mid).get("info") or {})
         # ce qui a été corrigé à la main passe devant la fiche du fournisseur
         backdrop = (v["backdrop"] or (info.get("backdrop_path") or [None])[0]
@@ -1294,7 +1510,10 @@ class Luciole:
             tr_ = next((e for e in ex if e["eptitle"] == "trailer" and e["playable"]), None)
             item["local_trailer"] = tr_["id"] if tr_ else 0
             logo = next((medias.local_logo(v["path"]) for v in vers if medias.local_logo(v["path"])), "")
-            item["logo"] = self.img(logo, 800) if logo else ""
+            tmdb = next((v["tmdb"] for v in vers if v["tmdb"]), 0)
+        else:
+            logo, tmdb = "", to_int(info.get("tmdb_id") or info.get("tmdb"))
+        self._title_extras("vod", mid, item, tmdb, logo)
         return item
 
     def movie_version(self, q, body):
@@ -1308,11 +1527,20 @@ class Luciole:
         medias.set_preferred(self.db, mid, fid)
         return {"ok": True, "version_pref": fid}
 
+    def movie_version_label(self, q, body):
+        """Nom donné à la main à une version (« Version 35 mm »…) ; vide : celui lu dans le nom du fichier."""
+        fid = to_int(body.get("file"))
+        if not self.db.execute("SELECT 1 FROM media_file WHERE id=? AND kind='movie'", (fid,)).fetchone():
+            raise ApiError(404, "fichier inconnu")
+        medias.set_label(self.db, fid, str(body.get("label") or ""))
+        return {"ok": True}
+
     def series(self, q):
         sid = to_int(q.get("id"))
         s = self.db.execute("SELECT * FROM series WHERE id=?", (sid,)).fetchone()
         if not s:
             raise ApiError(404, "série inconnue")
+        self._closed("series", sid, s["cat"])
         data = self._info("series", sid)
         flat_ids = [to_int(ep.get("id")) for ep in self._episodes_flat(data)]
         prog = self._progress_map("episode", flat_ids)
@@ -1329,6 +1557,8 @@ class Luciole:
         item.update({"plot": s["plot"], "backdrop": self.img(s["backdrop"] or s["poster"], 1920),
                      "seasons": seasons, "resume": self._series_resume(sid),
                      "trailer": _youtube_id((data.get("info") or {}).get("youtube_trailer")),
+                     "director": (data.get("info") or {}).get("director") or "",
+                     "cast": (data.get("info") or {}).get("cast") or (data.get("info") or {}).get("actors") or "",
                      "library": library.entry(self.db, "series", sid)})
         if sid >= medias.BASE:
             # bonus de la série : dans son dossier, ou dans ceux des saisons
@@ -1342,6 +1572,13 @@ class Luciole:
                                "playable": bool(e["playable"])} for e in ex]
             tr_ = next((e for e in ex if e["eptitle"] == "trailer" and e["playable"]), None)
             item["local_trailer"] = tr_["id"] if tr_ else 0
+            tmdb = self.db.execute("SELECT tmdb FROM media_show WHERE id=?", (sid - medias.BASE,)).fetchone()
+            tmdb = tmdb["tmdb"] if tmdb else 0
+            logo = medias.local_logo(os.path.join(show["folder"], "x")) if show and show["folder"] else ""
+        else:
+            inf = data.get("info") or {}
+            logo, tmdb = "", to_int(inf.get("tmdb_id") or inf.get("tmdb"))
+        self._title_extras("series", sid, item, tmdb, logo)
         return item
 
     def search(self, q):
@@ -1357,17 +1594,76 @@ class Luciole:
                " AND name NOT LIKE '%===%' AND name NOT LIKE '%***%' AND name NOT LIKE '%═%' AND name NOT LIKE '%~~%'"
                " AND name NOT LIKE '%●★%' AND name NOT LIKE '%★●%'")
         def q_(table, extra, order, limit):
-            return self.db.execute(f"SELECT * FROM {table} WHERE norm LIKE ? AND ({visible(table)} OR {mine}) AND {sep}"
+            return self.db.execute(f"SELECT * FROM {table} WHERE norm LIKE ? AND ({visible(table)} OR {mine}) "
+                                   f"AND {lock.sql(table)} AND {sep}"
                                    f" ORDER BY (norm LIKE ?) DESC, {order} LIMIT {limit}", (like, start))
         return {"live": self._channels(q_("live", "", "num, src", 20)),
                 "vod": self._vod_items(q_("vod", "", "added DESC", 40)),
                 "series": self._series_items(q_("series", "", "updated DESC", 40))}
 
+    # ---------- code parental ----------
+    def lock_status(self, q):
+        return {"pin": lock.has_pin(self.db), "open": lock.is_open(),
+                "locked": {k: sorted(lock.refs(self.db, k)) for k in ("live", "vod", "series")}}
+
+    def lock_unlock(self, q, body):
+        tok = lock.unlock(self.db, str(body.get("pin") or ""))
+        if not tok:
+            raise ApiError(403, "code incorrect")
+        return {"token": tok}
+
+    def lock_close(self, q, body):
+        lock.forget(str(body.get("token") or ""))
+        return {"ok": True}
+
+    def _need_pin(self, body):
+        """Changer les verrous ou le code demande le code actuel, s'il y en a un."""
+        if lock.has_pin(self.db) and not lock.check_pin(self.db, str(body.get("current") or "")):
+            raise ApiError(403, "code actuel incorrect")
+
+    def lock_pin(self, q, body):
+        """{pin, current} : nouveau code (4 à 8 chiffres) ; pin vide retire le code et tous les verrous."""
+        self._need_pin(body)
+        pin = str(body.get("pin") or "")
+        if pin and not lock.valid_pin(pin):
+            raise ApiError(400, "le code doit compter 4 à 8 chiffres")
+        lock.set_pin(self.db, pin)
+        return {"pin": bool(pin)}
+
+    def lock_set(self, q, body):
+        """{kind, id, on, current} : id d'une catégorie du fournisseur, ou « b12 » pour un bouquet personnel."""
+        if not lock.has_pin(self.db):
+            raise ApiError(400, "choisissez d'abord un code parental")
+        self._need_pin(body)
+        kind, ref = body.get("kind"), str(body.get("id") or "")
+        if kind not in ("live", "vod", "series") or not ref:
+            raise ApiError(400, "kind et id attendus")
+        lock.set_locked(self.db, kind, ref, bool(body.get("on")))
+        return {"ok": True, "locked": sorted(lock.refs(self.db, kind))}
+
+    def _cat_closed(self, kind, cat):
+        """Ouvrir un bouquet verrouillé demande le code (423) au lieu d'une liste vide."""
+        if not lock.is_open() and str(cat) in lock.refs(self.db, kind):
+            raise ApiError(423, "verrouillé par le code parental")
+
+    def _closed(self, kind, item_id, cat=None):
+        """423 : ce titre est fermé par le code parental (le téléviseur demande alors le code)."""
+        if lock.blocked(self.db, kind, item_id, cat):
+            raise ApiError(423, "verrouillé par le code parental")
+
     def play(self, q):
         kind, item_id = q.get("kind"), to_int(q.get("id"))
+        if kind in ("live", "replay"):
+            self._closed("live", item_id)
+        elif kind == "movie":
+            self._closed("vod", item_id)
+        elif kind == "episode" and q.get("series"):
+            self._closed("series", to_int(q.get("series")))
         if kind == "live":
             if not self.db.execute("SELECT 1 FROM live WHERE id=?", (item_id,)).fetchone():
                 raise ApiError(404, "chaîne inconnue")
+            if manual.is_manual(item_id):
+                return {"url": manual.url_of(self.db, item_id)}
             xt, raw, _ = self._resolve(item_id)
             return {"url": xt.live_url(raw)}
         if kind == "extra":
@@ -1389,7 +1685,7 @@ class Luciole:
                     f = next((v for v in vers if v["id"] == to_int(q.get("version"))), f)
                 if not f:
                     raise ApiError(404, "aucune autre version")
-                out = {"version": f["id"], "version_label": medias.version_label(f), "versions": len(vers),
+                out = {"version": f["id"], "version_label": medias.version_label(f, dur=False), "versions": len(vers),
                        "left": len([v for v in vers if v["id"] not in skip and v["id"] != f["id"]])}
             else:
                 f = medias.file_for(self.db, kind, item_id)
@@ -1447,13 +1743,13 @@ class Luciole:
         items = []
         if flt in ("all", "progress", "done", "movies"):
             for r in self.db.execute("SELECT p.*, v.name, v.poster FROM progress p JOIN vod v ON v.id = p.id "
-                                     "WHERE p.kind='movie' ORDER BY p.updated DESC LIMIT 300"):
+                                     f"WHERE p.kind='movie' AND {lock.sql('vod', 'v.cat')} ORDER BY p.updated DESC LIMIT 300"):
                 items.append({"kind": "movie", "id": r["id"], "name": r["name"], "poster": self.img(r["poster"], 240),
                               "progress": self._prog(r), "updated": r["updated"]})
         if flt in ("all", "progress", "done", "series"):
             for r in self.db.execute(
                     "SELECT p.*, s.name, s.poster FROM progress p JOIN series s ON s.id = p.series_id "
-                    "WHERE p.kind='episode' AND p.updated = (SELECT MAX(updated) FROM progress p2 "
+                    f"WHERE p.kind='episode' AND {lock.sql('series', 's.cat')} AND p.updated = (SELECT MAX(updated) FROM progress p2 "
                     "WHERE p2.kind='episode' AND p2.series_id = p.series_id) ORDER BY p.updated DESC LIMIT 300"):
                 items.append({"kind": "series", "id": r["series_id"], "name": r["name"],
                               "poster": self.img(r["poster"], 240), "episode_id": r["id"], "season": r["season"],
@@ -1484,12 +1780,12 @@ class Luciole:
         items = []
         if flt in ("all", "fav", "movies"):
             for r in self.db.execute("SELECT w.*, v.name, v.norm, v.poster FROM watchlist w JOIN vod v ON v.id = w.id "
-                                     "WHERE w.kind='movie'"):
+                                     f"WHERE w.kind='movie' AND {lock.sql('vod', 'v.cat')}"):
                 items.append({"kind": "movie", "id": r["id"], "name": r["name"], "norm": r["norm"],
                               "poster": self.img(r["poster"], 240), "fav": bool(r["fav"]), "added": r["added"]})
         if flt in ("all", "fav", "series"):
             for r in self.db.execute("SELECT w.*, s.name, s.norm, s.poster FROM watchlist w JOIN series s "
-                                     "ON s.id = w.id WHERE w.kind='series'"):
+                                     f"ON s.id = w.id WHERE w.kind='series' AND {lock.sql('series', 's.cat')}"):
                 items.append({"kind": "series", "id": r["id"], "name": r["name"], "norm": r["norm"],
                               "poster": self.img(r["poster"], 240), "fav": bool(r["fav"]), "added": r["added"]})
         if flt == "fav":
@@ -1685,6 +1981,11 @@ ROUTES = {
     ("POST", "/api/items/edit"): "edit_item",
     ("GET", "/api/art/search"): "art_search",
     ("GET", "/api/art/images"): "art_images",
+    ("GET", "/api/lock"): "lock_status",
+    ("POST", "/api/lock/unlock"): "lock_unlock",
+    ("POST", "/api/lock/close"): "lock_close",
+    ("POST", "/api/lock/pin"): "lock_pin",
+    ("POST", "/api/lock/set"): "lock_set",
     ("POST", "/api/art/fetch"): "art_fetch",
     ("POST", "/api/art/reset"): "art_reset",
     ("GET", "/api/home"): "home",
@@ -1695,6 +1996,7 @@ ROUTES = {
     ("GET", "/api/vod"): "vod",
     ("GET", "/api/movie"): "movie",
     ("POST", "/api/movie/version"): "movie_version",
+    ("POST", "/api/movie/version/label"): "movie_version_label",
     ("GET", "/api/series"): "series_list",
     ("GET", "/api/series/detail"): "series",
     ("GET", "/api/search"): "search",
@@ -1721,6 +2023,11 @@ ROUTES = {
     ("GET", "/api/channels/admin"): "channels_admin",
     ("POST", "/api/channels/edit"): "edit_channel",
     ("POST", "/api/channels/logo"): "set_channel_logo",
+    ("GET", "/api/manual"): "manual_list",
+    ("POST", "/api/manual/add"): "manual_add",
+    ("POST", "/api/manual/import"): "manual_import",
+    ("POST", "/api/manual/edit"): "manual_edit",
+    ("POST", "/api/manual/remove"): "manual_remove",
     ("GET", "/api/bouquets"): "bouquets_list",
     ("POST", "/api/bouquets/create"): "bouquet_create",
     ("POST", "/api/bouquets/rename"): "bouquet_rename",
@@ -1792,7 +2099,7 @@ def make_handler(app):
             self.send_response(204)
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Luciole-Token")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Luciole-Token, X-Luciole-Unlock, X-Luciole-Admin")
             self.send_header("Access-Control-Max-Age", "86400")
             self.send_header("Content-Length", "0")
             self.end_headers()
@@ -1803,6 +2110,8 @@ def make_handler(app):
             q["_ip"] = self.client_address[0]
             if token and token not in (self.headers.get("X-Luciole-Token"), q.get("token")):
                 return self._json(401, {"error": "jeton manquant ou incorrect"})
+            # code parental : la page des réglages voit tout ; le téléviseur, seulement s'il a ouvert les verrous
+            lock.begin(self.headers.get("X-Luciole-Admin") == "1" or lock.token_ok(self.headers.get("X-Luciole-Unlock")))
             if url.path == "/img" and self.command == "GET":
                 return self._image(q)
             if url.path in ("/", "/accueil") and self.command == "GET":

@@ -14,7 +14,7 @@ import sys
 import urllib.parse
 import xml.etree.ElementTree as ET
 
-from . import custom, epg_ext, filters, medias, providers
+from . import custom, epg_ext, filters, images, medias, providers
 from .common import connect, load_config, merge_hosts, norm, now, to_float, to_int, xmltv_time
 from .xtream import XtreamError
 
@@ -196,6 +196,12 @@ def run(cfg, only=None):
         except Exception as e:
             log.error("médiathèque non mise à jour : %s", e)
             ok = False
+        try:
+            n, size = images.prune(cfg["server"]["data_dir"])
+            if n:
+                log.info("cache d'images : %d images inutilisées effacées (%d Mo)", n, size // (1024 * 1024))
+        except Exception as e:
+            log.error("cache d'images non nettoyé : %s", e)
         db.close()
         return ok
 

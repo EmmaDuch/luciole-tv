@@ -15,6 +15,7 @@ Les fichiers de la médiathèque personnelle restent au-dessus de medias.BASE.
 """
 import json
 import re
+import time
 
 from .common import norm, now
 from .xtream import Xtream
@@ -161,6 +162,8 @@ def save_info(db, src, info, status="ok"):
 
 
 def set_status(db, src, status, synced=False):
+    if status != "ok":   # une erreur porte son heure : sinon on la croit plus récente que la dernière réussite
+        status = "%s · %s" % (time.strftime("%d/%m %H:%M"), status)
     with db:
         if synced:
             db.execute("UPDATE provider SET status=?, last_sync=? WHERE src=?", (status, now(), src))

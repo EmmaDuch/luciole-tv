@@ -464,6 +464,15 @@ class Tmdb:
                          include_image_language="%s,en,null" % (self.lang or "fr")[:2])
 
 
+def pick_logo(data, lang="fr"):
+    """Le meilleur logo d'un titre dans la réponse /images : la langue de l'interface, puis l'anglais,
+    puis sans texte ; à égalité, le mieux noté. '' s'il n'y en a pas."""
+    order = {lang[:2]: 0, "en": 1, None: 2}
+    logos = sorted((data or {}).get("logos") or [],
+                   key=lambda i: (order.get(i.get("iso_639_1"), 3), -(i.get("vote_average") or 0)))
+    return logos[0].get("file_path") or "" if logos else ""
+
+
 def _trailer(data):
     """Identifiant YouTube de la bande-annonce, si TMDB en propose une."""
     for v in ((data.get("videos") or {}).get("results") or []):
@@ -708,16 +717,64 @@ _CODEC_LABEL = {"hevc": "HEVC", "h265": "HEVC", "h264": "H.264", "avc": "H.264",
 # l'édition suit l'année, à la façon de Plex et Jellyfin : « Film (2002) - Director's Cut ».
 # Sans année devant, le tiret fait partie du titre (« Alien - Romulus (2024) »).
 _VERSION_TAG = re.compile(r"\(\d{4}\)\s*-\s+([^-]{1,40})$")
+# l'étiquette d'édition de Plex et Jellyfin : « Film (2002) {edition-Director's Cut} »
+_EDITION_TAG = re.compile(r"\{\s*edition\s*[-_=: ]\s*([^{}]{1,60})\}", re.I)
+# ce qui, entre parenthèses ou crochets, n'est pas une édition : année, identifiants, mentions techniques
+_TECH_WORDS = re.compile(r"(?i)(?<![a-z0-9])(?:" + _JUNK + r"|fhd|hd|sd|10 ?bits?|8 ?bits?|vf|fr|en|eng|ita|subs?|vostf?)(?![a-z0-9])")
+_ID_TAG = re.compile(r"(?i)^\s*(?:tmdb|imdb|tvdb|tt\d|id\b)")
 
 
-def version_label(f):
-    """« 4K · HEVC », « 1080p · H.264 · Director's Cut »…"""
+def edition(path):
+    """Le nom de l'édition lu dans le nom du fichier : « The Remus Cut », « Version 35 MM »…
+    Accepte {edition-…}, « (année) - Édition », et ce qui est entre parenthèses ou crochets
+    quand ce n'est ni l'année, ni un identifiant, ni une mention technique (1080p, MULTi…)."""
+    base = os.path.splitext(os.path.basename(path or ""))[0]
+    m = _EDITION_TAG.search(base)
+    if m:
+        return m.group(1).strip()
+    m = _VERSION_TAG.search(_ANY_TAG.sub("", base).strip())
+    if m and _TECH_WORDS.sub("", m.group(1)).strip(" -._"):
+        return m.group(1).strip()
+    found = []
+    for t in re.findall(r"[(\[]([^()\[\]]{1,60})[)\]]", base):
+        t = t.strip()
+        if re.fullmatch(r"(?:19|20)\d{2}", t) or _ID_TAG.match(t):
+            continue
+        if not re.search(r"[^\W\d_]", _TECH_WORDS.sub(" ", t)):
+            continue                                   # rien que du technique
+        found.append(t)
+    return " · ".join(found)
+
+
+def duration_label(sec):
+    """« 2 h 14 », « 52 min »."""
+    m = int(round((sec or 0) / 60))
+    if m <= 0:
+        return ""
+    return "%d h %02d" % (m // 60, m % 60) if m >= 60 else "%d min" % m
+
+
+def _field(f, k):
+    try:
+        return f[k]
+    except (KeyError, IndexError):
+        return None
+
+
+def version_label(f, dur=True):
+    """« 4K · HEVC · 2 h 14 », « 1080p · H.264 · The Remus Cut · 2 h 18 »…
+    Le nom donné à la main (vlabel) remplace l'édition lue dans le nom du fichier."""
     bits = [TIER_LABEL.get(tier(f["width"], f["height"]), "")]
     bits.append(_CODEC_LABEL.get((f["vcodec"] or "").lower(), (f["vcodec"] or "").upper()))
-    m = _VERSION_TAG.search(_ANY_TAG.sub("", os.path.splitext(os.path.basename(f["path"]))[0]).strip())
-    if m and not re.fullmatch(r"(?i)\s*(4k|uhd|2160p|1080p|720p|480p|sd|hd)\s*", m.group(1)):
-        bits.append(m.group(1).strip())
+    bits.append((_field(f, "vlabel") or "").strip() or edition(f["path"]))
+    if dur:
+        bits.append(duration_label(_field(f, "dur")))
     return " · ".join(b for b in bits if b) or os.path.basename(f["path"])
+
+
+def set_label(db, file_id, label):
+    with db:
+        db.execute("UPDATE media_file SET vlabel=? WHERE id=? AND kind='movie'", ((label or "").strip()[:60] or None, file_id))
 
 
 def _vkey(f):

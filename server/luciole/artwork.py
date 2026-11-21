@@ -34,8 +34,8 @@ def check(kind, slot):
         raise ValueError("kind doit valoir vod, series ou live")
     if slot not in SLOTS:
         raise ValueError("slot doit valoir poster, backdrop ou logo")
-    if (slot == "logo") != (kind == "live"):
-        raise ValueError("une chaîne a un logo, un film ou une série a une jaquette et un fond")
+    if kind == "live" and slot != "logo":
+        raise ValueError("une chaîne n'a qu'un logo")
 
 
 def _name(kind, item_id, slot, ext):

@@ -78,6 +78,15 @@ def _providers(raw):
 SCHEMA = """
 PRAGMA journal_mode=WAL;
 CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
+-- Code parental : catégories (id) et bouquets personnels (« b12 ») verrouillés
+CREATE TABLE IF NOT EXISTS locked(kind TEXT, ref TEXT, PRIMARY KEY(kind, ref));
+-- logo du titre trouvé sur TMDB ('' : aucun), redemandé de temps en temps
+CREATE TABLE IF NOT EXISTS tmdb_logo(kind TEXT, tmdb INT, url TEXT, ts INT, PRIMARY KEY(kind, tmdb));
+-- réalisation et distribution prises sur TMDB quand le fournisseur n'en donne pas
+CREATE TABLE IF NOT EXISTS tmdb_people(kind TEXT, tmdb INT, director TEXT, cast_ TEXT, ts INT, PRIMARY KEY(kind, tmdb));
+-- Chaînes ajoutées à la main (lien de flux ou liste M3U), voir manual.py
+CREATE TABLE IF NOT EXISTS manual_live(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, url TEXT, logo TEXT,
+                                       num INT, pos INT);
 -- Abonnements IPTV : un numéro interne (src) par « id » de la configuration
 CREATE TABLE IF NOT EXISTS provider(src INTEGER PRIMARY KEY, slug TEXT UNIQUE, name TEXT, pos INT,
                                     letter_set TEXT, color_set TEXT, info TEXT, info_at INT, tz TEXT,
@@ -179,13 +188,14 @@ def migrate(db):
                              ("media_show", "folder", "TEXT"), ("bouquets", "kind", "TEXT DEFAULT 'live'"),
                              ("live", "orig_logo", "TEXT"), ("chan_override", "logo", "TEXT"),
                              ("item_override", "plot", "TEXT"), ("item_override", "poster", "TEXT"),
-                             ("item_override", "backdrop", "TEXT"),
+                             ("item_override", "backdrop", "TEXT"), ("item_override", "logo", "TEXT"),
+                             ("item_override", "trailer", "TEXT"),
                              ("vod", "orig_poster", "TEXT"), ("vod", "backdrop", "TEXT"), ("vod", "plot", "TEXT"),
                              ("series", "orig_poster", "TEXT"), ("series", "orig_backdrop", "TEXT"),
                              ("series", "orig_plot", "TEXT"), ("live", "src", "INT DEFAULT 0"),
                              ("vod", "src", "INT DEFAULT 0"), ("series", "src", "INT DEFAULT 0"),
                              ("categories", "src", "INT DEFAULT 0"), ("media_file", "grp", "INT"),
-                             ("media_file", "owner", "TEXT"),
+                             ("media_file", "owner", "TEXT"), ("media_file", "vlabel", "TEXT"),
                              ("bouquet_items", "num", "INT")):
         cols = {r[1] for r in db.execute(f"PRAGMA table_info({table})")}
         if col not in cols:

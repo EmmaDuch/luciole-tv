@@ -42,6 +42,35 @@ function translatePage(root) {
 }
 
 var EN = {
+  'Logo du titre': 'Title logo',
+  'Logo du titre : sans choix ici, Luciole prend le fichier clearlogo.png posé à côté, sinon celui de TMDB.': 'Title logo: if none is chosen here, Luciole uses the clearlogo.png file next to the media, otherwise the TMDB one.',
+  'Bande-annonce (lien YouTube)': 'Trailer (YouTube link)',
+  'Vide : celle du fournisseur ou de TMDB.': 'Empty: the provider or TMDB one.',
+  'Nommer la version': 'Name this version',
+  'Nom de cette version': 'Name of this version',
+  'Lu dans le nom du fichier : « {e} ». Laissez vide pour le garder.': 'Read from the file name: “{e}”. Leave empty to keep it.',
+  'Par exemple « Version longue » ou « Copie 35 mm ». Laissez vide pour n’en mettre aucun.': 'For example “Extended version” or “35 mm print”. Leave empty for none.',
+  'Ajouter une chaîne': 'Add a channel',
+  'Un lien': 'A link',
+  'Une liste M3U': 'An M3U list',
+  'Ma chaîne': 'My channel',
+  'Adresse du flux': 'Stream address',
+  'Logo (adresse d’une image, facultatif)': 'Logo (image address, optional)',
+  'Numéro (facultatif)': 'Number (optional)',
+  'Adresse de la liste M3U': 'M3U list address',
+  '… ou collez son contenu ici': '… or paste its content here',
+  'Chaque entrée #EXTINF devient une chaîne, avec son nom et son logo. Les liens déjà présents sont ignorés.': 'Each #EXTINF entry becomes a channel, with its name and logo. Links already present are skipped.',
+  'Ajouter aussi au bouquet': 'Also add to bouquet',
+  'Aucun (seulement « Mes liens »)': 'None (only “My links”)',
+  '{n} chaîne(s) ajoutée(s) dans « Mes liens ».': '{n} channel(s) added to “My links”.',
+  'Rien de nouveau : ces liens sont déjà là.': 'Nothing new: these links are already there.',
+  'Lien': 'Link',
+  'Lien de « {n} »': 'Link of “{n}”',
+  'Lien enregistré.': 'Link saved.',
+  'Supprimer « {n} »': 'Delete “{n}”',
+  'Cette chaîne ajoutée à la main sera retirée de Luciole, de vos bouquets et de vos favoris.': 'This manually added channel will be removed from Luciole, your bouquets and your favourites.',
+  'Ajoutée à la main · n° {n} · {o}': 'Added manually · no. {n} · {o}',
+  'Modifiez le numéro ou le nom puis appuyez sur Entrée. Un champ vide revient à la valeur du fournisseur. « Ajouter une chaîne » accepte un lien de flux ou une liste M3U ; ces chaînes vont dans le bouquet « Mes liens ».': 'Edit the number or name then press Enter. An empty field goes back to the provider value. “Add a channel” accepts a stream link or an M3U list; these channels go into the “My links” bouquet.',
   /* en-tête, onglets */
   'Luciole – Réglages': 'Luciole – Settings', 'Luciole – Accueil': 'Luciole – Home',
   'Organisez vos bouquets, vos chaînes et votre guide des programmes. Tout est enregistré tout de suite.':
@@ -198,6 +227,13 @@ var EN = {
   /* bouquets du fournisseur */
   'Rechercher un bouquet': 'Search a bouquet', 'Tout afficher': 'Show all', 'Tout masquer': 'Hide all',
   'Case cochée = visible sur la TV. Cliquez sur le nom pour renommer.': 'Ticked = visible on the TV. Click the name to rename.',
+  'Case cochée = visible sur la TV. Cliquez sur le nom pour renommer. « Verrouiller » demande le code parental sur la TV.': 'Ticked = visible on the TV. Click the name to rename. “Lock” asks for the parental code on the TV.',
+  'Code parental': 'Parental code', 'Choisir un code parental': 'Choose a parental code', 'Nouveau code (4 à 8 chiffres)': 'New code (4 to 8 digits)',
+  'Code actuel': 'Current code', 'Verrouillé': 'Locked', 'Verrouiller': 'Lock', 'Nouveau code': 'New code',
+  'Retirer le code parental de ce bouquet': 'Remove the parental code from this bouquet', 'Demander le code parental sur la TV': 'Ask for the parental code on the TV',
+  'Actif · {n} bouquet(s) verrouillé(s). Sur la TV, ils gardent un cadenas et demandent le code.': 'On · {n} locked bouquet(s). On the TV they show a padlock and ask for the code.',
+  'Aucun code. Choisissez-en un pour verrouiller des bouquets (chaînes, films ou séries pour adultes).': 'No code. Choose one to lock bouquets (adult channels, movies or series).',
+  'Changer le code': 'Change the code', 'Choisir un code': 'Choose a code', 'Retirer le code': 'Remove the code',
   'Afficher {n}': 'Show {n}', '{n} titres': '{n} titles', 'Nom d’origine': 'Original name', 'Règle auto': 'Automatic rule',
   'Revenir aux règles de config.toml': 'Go back to the config.toml rules', 'masqué par une règle': 'hidden by a rule',
   '{v} bouquets visibles sur {n}': '{v} of {n} bouquets visible', '{n} affichés': '{n} shown', 'Replay': 'Catch-up',
@@ -287,5 +323,7 @@ var EN = {
   /* erreurs venues du serveur */
   'chaîne inconnue': 'unknown channel', 'fiche inconnue': 'unknown item', 'abonnement inconnu': 'unknown subscription',
   'le fournisseur ne répond pas': 'the provider is not responding', 'erreur interne': 'internal error',
-  'aucune clé TMDB dans la configuration': 'no TMDB key in the configuration', 'JSON invalide': 'invalid JSON'
+  'aucune clé TMDB dans la configuration': 'no TMDB key in the configuration', 'JSON invalide': 'invalid JSON',
+  'code incorrect': 'wrong code', 'code actuel incorrect': 'wrong current code', 'le code doit compter 4 à 8 chiffres': 'the code must have 4 to 8 digits',
+  "choisissez d'abord un code parental": 'choose a parental code first', 'verrouillé par le code parental': 'locked by the parental code'
 };

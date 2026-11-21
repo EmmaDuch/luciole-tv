@@ -114,7 +114,7 @@ var App = {
     API.get('/api/series/detail?id=' + seriesId).then(function (d) {
       var flat = flattenEpisodes(d);
       var idx = d.resume ? flat.findIndex(function (e) { return e.id === d.resume.episode_id; }) : 0;
-      App.playEpisodes({ id: d.id, name: d.name, backdrop: d.backdrop }, flat, Math.max(0, idx));
+      App.playEpisodes({ id: d.id, name: d.name, poster: d.poster, backdrop: d.backdrop }, flat, Math.max(0, idx));
     }).catch(function (e) { Toast.show(e.message); });
   },
   toggleWatchlist: function (it, onDone) {
@@ -194,11 +194,11 @@ function SetupScreen(first) {
    ===================================================================== */
 function HomeScreen() {
   var s = baseScreen('home',
-    '<div class="hero-art"></div>' + headerHTML('home') +
+    '<div class="hero-art"><div class="hero-img"></div></div>' + headerHTML('home') +
     '<div class="hero"></div><div class="dots"></div>' +
     '<div class="rows scroll-y" data-pad="40"><div class="inner"></div></div><div class="state"></div>');
   var data = null, hero = $('.hero', s.el), rows = $('.rows .inner', s.el), state = $('.state', s.el);
-  var art = $('.hero-art', s.el), dots = $('.dots', s.el), heroList = [], heroIdx = 0, heroTimer = null;
+  var art = $('.hero-art .hero-img', s.el), dots = $('.dots', s.el), heroList = [], heroIdx = 0, heroTimer = null;
 
   function load(quiet) {
     if (!quiet) { state.innerHTML = loadingHTML(); state.classList.remove('hidden'); }
@@ -209,12 +209,12 @@ function HomeScreen() {
         state.classList.remove('hidden'); state.innerHTML = errorHTML(e.message); Focus.first(state);
       });
   }
+  /* le carrousel ne montre que les nouveautés (films et séries) ; la reprise est dans la rangée en dessous */
   function buildHeroList() {
-    heroList = [];
-    data.continue.forEach(function (it) { heroList.push(it); });
-    data.recent_movies.slice(0, 4).forEach(function (m) { heroList.push({ kind: 'movie', id: m.id, name: m.name, poster: m.poster, backdrop: m.poster, added: m.added, fresh: true }); });
+    heroList = (data.hero || []).map(function (m) {
+      return { kind: m.kind, id: m.id, name: m.name, poster: m.poster, backdrop: m.backdrop || m.poster, added: m.added, fresh: true };
+    });
     if (!heroList.length && data.channels[0]) heroList.push({ kind: 'live', channel: data.channels[0] });
-    heroList = heroList.slice(0, 6);
   }
   function renderHero() {
     var h = heroList[heroIdx];
@@ -229,7 +229,9 @@ function HomeScreen() {
       kicker = tr('En direct'); title = h.channel.now ? h.channel.now.title : h.channel.name;
       meta = h.channel.num + ' · ' + h.channel.name;
     } else if (h.fresh) {
-      kicker = tr('Nouveau'); title = h.name; meta = tr('Film ajouté {d}', { d: dayLabel(h.added) });
+      kicker = tr('Nouveau'); title = h.name;
+      meta = !h.added ? tr(h.kind === 'series' ? 'Série' : 'Film')
+        : tr(h.kind === 'series' ? 'Série mise à jour {d}' : 'Film ajouté {d}', { d: dayLabel(h.added) });
     } else {
       kicker = tr(h.resume && h.resume.next ? 'Épisode suivant' : 'Reprendre la lecture');
       title = h.name;
@@ -340,11 +342,13 @@ function HomeScreen() {
       var it = findItem(n); if (it) App.toggleWatchlist(it, function () { load(true); });
       return true;
     }
-    if (n && n.getAttribute('data-act') === 'hero-play' && heroList.length > 1 && (k === KEY.LEFT || k === KEY.RIGHT)) {
-      if (k === KEY.LEFT && !n.previousElementSibling) return false;
+    // gauche sur le premier bouton : élément précédent ; droite sur le dernier (« Voir la fiche ») : suivant.
+    // Entre les deux, les flèches passent d'un bouton à l'autre.
+    var hact = n && n.getAttribute('data-act');
+    if (heroList.length > 1 && ((hact === 'hero-play' && k === KEY.LEFT) || (hact === 'hero-open' && k === KEY.RIGHT))) {
       heroIdx = (heroIdx + (k === KEY.RIGHT ? 1 : heroList.length - 1)) % heroList.length;
       renderHero(); rotate();
-      var f = $('[data-key="hero-play"]', s.el); if (f) Focus.set(f, true);
+      var f = $('[data-key="' + (k === KEY.RIGHT ? 'hero-open' : 'hero-play') + '"]', s.el); if (f) Focus.set(f, true);
       return true;
     }
     if (k === KEY.INFO && n && n.getAttribute('data-act') === 'channel') {
@@ -480,7 +484,7 @@ function GuideScreen() {
   function renderCats() {
     // la liste ne change pas en naviguant : on ne reconstruit que si elle est vraiment différente,
     // sinon on déplace juste la marque « active » — sans quoi le focus serait perdu à chaque pas
-    var sig = src + '#' + cats.map(function (c) { return c.id + ':' + (c.name || ''); }).join('|');
+    var sig = src + '#' + (API.unlock ? 'o' : 'f') + '#' + cats.map(function (c) { return c.id + ':' + (c.name || ''); }).join('|');
     if (catsBox.getAttribute('data-sig') !== sig) {
       catsBox.setAttribute('data-sig', sig);
       catsBox.innerHTML = cats.map(function (c) {
@@ -498,7 +502,7 @@ function GuideScreen() {
         }
         // avec plusieurs abonnements, un bouquet du fournisseur porte sa pastille
         return '<div class="cat focusable" data-cat="' + esc(c.id) + '" data-key="cat:' + esc(c.id) + '">' +
-          '<span class="nm">' + (c.src && !src ? srcBadge(c.src, 'inline') : '') + esc(c.name) + '</span><small></small></div>';
+          '<span class="nm">' + (c.src && !src ? srcBadge(c.src, 'inline') : '') + esc(c.name) + lockMark(c) + '</span><small></small></div>';
       }).join('');
     }
     cats.forEach(function (c) {
@@ -670,6 +674,8 @@ function GuideScreen() {
     } else if (n.hasAttribute('data-cat')) autoCat(n.getAttribute('data-cat'));
   });
   var autoCat = debounce(function (c) {
+    var cc = cats.filter(function (x) { return x.id === c; })[0];
+    if (cc && cc.locked && !API.unlock) return;      // un bouquet verrouillé s'ouvre avec OK, et le code
     if (Focus.current && Focus.current.getAttribute('data-cat') === c && c !== cat) {
       cats.forEach(function (x) { x.count = x.id === c ? x.count : x.count; });
       load(c, true);
@@ -903,7 +909,7 @@ function PlayerScreen(o) {
     '<div class="p-top" id="p-top"></div>' +
     '<h1 class="p-title" id="p-title"></h1>' +
     '<div class="p-sub" id="p-sub"></div>' +
-    '</div></div>' +
+    '</div>' + (live ? '<div class="p-chlogo" id="p-chlogo"></div>' : '') + '</div>' +
     '<div class="p-seek' + (live ? '' : ' vod focusable') + '" id="p-seek"' + (live ? '' : ' data-key="seek"') + '>' +
     '<i id="p-fill" style="width:0"></i>' + (live ? '' : '<b id="p-knob" style="left:0"></b>') + '</div>' +
     (live ? '<div class="p-rest" id="p-rest"></div>'
@@ -931,15 +937,62 @@ function PlayerScreen(o) {
   s.el.classList.add('see-through');
   var ui = $('.player-ui', s.el), status = $('.p-status', s.el), zapBox = $('.zap', s.el);
   var idx = o.index || 0, hideTimer = null, zapTimer = null, numBuf = '', numTimer = null;
+
+  /* titre et infos trop longs : ils défilent lentement (pause, défilement, pause, retour) au lieu d'être coupés */
+  function marquee(el) {
+    if (!el || !alive) return;
+    var inner = el.firstChild && el.firstChild.className === 'mq' && el.childNodes.length === 1 ? el.firstChild : null;
+    // même texte, même place (le bandeau compact a un titre plus petit) : on laisse tourner
+    var key = el.textContent + '|' + el.clientWidth + '|' + (inner ? inner.offsetWidth : -1);
+    if (el._mqKey === key) return;
+    clearTimeout(el._mq);
+    if (!inner) {
+      inner = document.createElement('span'); inner.className = 'mq';
+      while (el.firstChild) inner.appendChild(el.firstChild);
+      el.appendChild(inner);
+    }
+    inner.style.transition = 'none'; inner.style.transform = 'translateX(0)';
+    inner.style.opacity = '1';
+    var over = inner.offsetWidth - el.clientWidth;
+    el._mqKey = el.textContent + '|' + el.clientWidth + '|' + inner.offsetWidth;
+    el._mqOn = over > 4;
+    el.classList.toggle('mq-on', el._mqOn);
+    if (!el._mqOn) return;
+    var dist = over + 30, dur = Math.max(4, dist / 70);           // environ 70 pixels par seconde
+    (function loop() {
+      el._mq = setTimeout(function () {
+        if (!alive) return;
+        inner.style.transition = 'transform ' + dur + 's linear';
+        inner.style.transform = 'translateX(-' + dist + 'px)';
+        el._mq = setTimeout(function () {
+          inner.style.transition = 'opacity .4s'; inner.style.opacity = '0';
+          el._mq = setTimeout(function () {
+            inner.style.transition = 'none'; inner.style.transform = 'translateX(0)';
+            void inner.offsetWidth; inner.style.transition = 'opacity .4s'; inner.style.opacity = '1';
+            loop();
+          }, 450);
+        }, dur * 1000 + 2500);
+      }, 3000);
+    })();
+  }
+  function marqueeAll() { marquee($('#p-title', s.el)); marquee($('#p-sub', s.el)); }
+  var mqWatch = null;
+  try {
+    mqWatch = new MutationObserver(function () { setTimeout(marqueeAll, 0); });
+    ['#p-title', '#p-sub'].forEach(function (q) {
+      var n = $(q, s.el); if (n) mqWatch.observe(n, { childList: true, characterData: true, subtree: true });
+    });
+  } catch (e) { mqWatch = null; }
   var cur = null, lastSaved = 0, seekTarget = null, seekTimer = null, endTimer = null, nextUp = null;
   var alive = true, epgTimer = null, infoTimer = null, vInfo = null;
-  var RETRY_DELAYS = [2, 3, 5, 8, 12, 20], retries = 0, retryTimer = null, healthyTimer = null;
+  var RETRY_DELAYS = [2, 3, 5, 8, 12, 20], retries = 0, retryTimer = null, healthyTimer = null, quickRetried = false;
   // film en plusieurs versions : celles qui n'ont pas démarré, la version en cours, et s'il en reste
   var tried = [], curVer = null, verLeft = 0, verLabel = '', readyOnce = false;
   var lastTick = Date.now(), lastPos = -1, watchdog = null, resumeAt = null, userPaused = false;
 
   function showUI(persist, full) {
     if (live) ui.classList.toggle('compact', !full);
+    marqueeAll();
     ui.classList.remove('faded'); document.body.classList.add('overlay-up');
     clearTimeout(hideTimer);
     if (!persist) hideTimer = setTimeout(hideUI, full ? 12000 : 5000);
@@ -1037,9 +1090,25 @@ function PlayerScreen(o) {
     var top = $('#p-top', s.el);
     if (!top) return;
     if (live) {
-      top.innerHTML = logoHTML(ch, 'p-logo') +
+      // le logo dit déjà le nom : on garde le numéro, et le nom seulement quand il n'y a pas de logo
+      // le numéro en premier à gauche, le logo en grand à droite au-dessus de la barre ;
+      // le nom seulement quand la chaîne n'a pas de logo (ou qu'il ne se charge pas)
+      var lg = $('#p-chlogo', s.el);
+      if (lg) {
+        // en image de fond « contain » : le logo entre toujours entier dans son cadre, jamais rogné
+        // version « au plus près » du logo (sans le carré transparent des listes) : il touche le bas du cadre
+        var big = /[?&]m=logo(&|$)/.test(ch.logo || '') ? ch.logo.replace(/([?&])m=logo(&|$)/, '$1m=logow$2').replace(/([?&])w=\d+/, '$1w=640') : ch.logo;
+        lg.style.backgroundImage = big ? 'url("' + API.img(big).replace(/"/g, '%22') + '")' : 'none';
+        if (big) {
+          var probe = new Image();
+          probe.onerror = function () { lg.style.backgroundImage = 'none'; var n = $('#p-chname', s.el); if (n) n.hidden = false; };
+          probe.src = API.img(big);
+        }
+      }
+      top.innerHTML =
+        (ch.num ? '<span class="p-num">' + esc(String(ch.num)) + '</span>' : '') +
+        '<span id="p-chname" style="font-size:25px;font-weight:600"' + (ch.logo ? ' hidden' : '') + '>' + esc(ch.name) + '</span>' +
         '<span class="bdg live">' + tr('EN DIRECT') + '</span>' +
-        '<span style="font-size:25px;font-weight:600">' + esc((ch.num ? ch.num + ' ' : '') + ch.name) + '</span>' +
         srcBadge(ch.src) + badgesHTML(ch, vInfo);
     } else if (replay) {
       top.innerHTML = logoHTML(o.channel, 'p-logo') +
@@ -1099,15 +1168,30 @@ function PlayerScreen(o) {
       ch.now = p[0] || null; ch.next = p[1] || null; if (alive) liveInfo();
     }).catch(function () {});
   }
-  /* l'affiche à gauche du titre, dans le bandeau */
+  /* l'affiche à gauche du titre, dans le bandeau. On essaie les images dans l'ordre
+     et on n'affiche que celle dont la forme convient (affiche en hauteur, ou image
+     d'épisode en largeur) : une image mal proportionnée serait rognée n'importe comment.
+     Si aucune ne convient, rien n'est affiché. */
   function setPoster(src, wide) {
+    var list = Array.isArray(src) ? src : [{ src: src, wide: !!wide }];
     var im = $('#p-poster', s.el);
     if (!im) return;
-    if (!src) { im.classList.add('hidden'); im.removeAttribute('src'); return; }
-    im.classList.toggle('wide', !!wide);
-    im.onerror = function () { im.classList.add('hidden'); };
-    im.src = API.img(src);
-    im.classList.remove('hidden');
+    var token = (im._tok || 0) + 1; im._tok = token;
+    im.classList.add('hidden'); im.removeAttribute('src');
+    (function tryAt(i) {
+      while (i < list.length && !list[i].src) i++;
+      if (i >= list.length) return;
+      var c = list[i];
+      im.onerror = function () { if (im._tok === token) tryAt(i + 1); };
+      im.onload = function () {
+        if (im._tok !== token) return;
+        var w = im.naturalWidth, h = im.naturalHeight, ok = w && h && (c.wide ? w / h > 1.2 : h / w > 1.2);
+        if (!ok) return tryAt(i + 1);
+        im.classList.toggle('wide', !!c.wide);
+        im.classList.remove('hidden');
+      };
+      im.src = API.img(c.src);
+    })(0);
   }
   function vodInfo() {
     refreshBadges();
@@ -1122,7 +1206,7 @@ function PlayerScreen(o) {
       $('#p-sub', s.el).textContent = o.extra ? o.item.name : '';
     } else {
       var e = o.episodes[idx], nxt = o.episodes[idx + 1];
-      setPoster(e.image || o.series.poster || o.series.backdrop, !!e.image);
+      setPoster([{ src: e.image, wide: true }, { src: o.series.poster }]);
       $('#p-title', s.el).textContent = e.title || tr('Épisode {n}', { n: e.episode });
       $('#p-sub', s.el).textContent = tr('{s} · Saison {n} · Épisode {e}', { s: o.series.name, n: e.season, e: e.episode }) +
         (nxt ? '   |   ' + tr('Ensuite S{s} · É{e}', { s: nxt.season, e: nxt.episode }) : '');
@@ -1174,10 +1258,11 @@ function PlayerScreen(o) {
       cur = o.item; vodInfo();
       q = '/api/play?kind=movie&id=' + cur.id + '&maxh=' + maxQuality() + (tried.length ? '&skip=' + tried.join(',') : '');
     }
-    else { cur = o.episodes[idx]; vodInfo(); q = '/api/play?kind=episode&id=' + cur.id + '&ext=' + encodeURIComponent(cur.ext || 'mp4'); }
+    else { cur = o.episodes[idx]; vodInfo(); q = '/api/play?kind=episode&id=' + cur.id + '&ext=' + encodeURIComponent(cur.ext || 'mp4') +
+      (o.series ? '&series=' + o.series.id : ''); }
     if (live && Player.url && Player.state !== 'idle' && s.prevPlayingId === cur.id) {
       s.prevPlayingId = null;
-      Player.setRect({ x: 0, y: 0, w: 1920, h: 1080 });
+      Player.setRect({ x: 0, y: 0, w: 1920, h: 1080 }); Player.setDisplay(displayPref());
       Player.cb = callbacks(); setStatus(''); setToggleIcon(); showUI(); grabInfo();
       return;
     }
@@ -1187,7 +1272,8 @@ function PlayerScreen(o) {
       curVer = d.version || null; verLeft = d.left || 0; verLabel = d.version_label || '';
       if (d.local && d.playable === false) setStatus('<div class="warn">' + esc(d.note || tr('Format non lu par le téléviseur')) + '</div>');
       Player.play(d.local ? API.media(d.url) : d.url, Object.assign(callbacks(), {
-        live: live, rect: { x: 0, y: 0, w: 1920, h: 1080 },
+        live: live, rect: { x: 0, y: 0, w: 1920, h: 1080 }, display: displayPref(),
+        buffer: live ? Store.get('liveBuffer', 3) : 5,
         start: resumeAt !== null && !replay ? resumeAt : (o.fromStart ? 0 : (d.start || 0))
       }));
       o.fromStart = false; resumeAt = null;
@@ -1201,14 +1287,27 @@ function PlayerScreen(o) {
       refreshBadges();
     }, 1500);
   }
+  /* langue audio et sous-titres : celle retenue pour la série, sinon le réglage du type de contenu */
+  /* format de l'image : retenu chaîne par chaîne en direct, une fois pour toutes en films et séries */
+  function displayKey() { return live ? 'ar.c.' + (cur && cur.id) : 'ar.vod'; }
+  function displayPref() { return Store.get(displayKey(), null) || (live ? Store.get('ar.live', 'box') : 'box'); }
+  function langKind() { return live || replay ? 'live' : (o.mode === 'episode' ? 'series' : 'movie'); }
+  function langPref() {
+    if (o.mode === 'episode' && o.series && !o.extra) {
+      var mem = Store.get('trk.s.' + o.series.id, null);
+      if (mem) return mem;
+    }
+    return trackPref(langKind());
+  }
   function callbacks() {
     return {
       onReady: function () {
         if (!alive) return;
+        if (!readyOnce) setTimeout(function () { if (alive) Player.applyLang(langPref()); }, 400);
         readyOnce = true;
         setStatus(''); setToggleIcon(); showUI(); grabInfo();
         lastTick = Date.now();
-        clearTimeout(healthyTimer); healthyTimer = setTimeout(function () { retries = 0; }, 60000);
+        clearTimeout(healthyTimer); healthyTimer = setTimeout(function () { retries = 0; quickRetried = false; }, 60000);
       },
       onBuffering: function (b) { if (!alive) return; setStatus(b ? loadingHTML() : ''); },
       onTime: function (pos) { if (!alive) return; if (pos !== lastPos) { lastPos = pos; lastTick = Date.now(); } updateTime(pos); },
@@ -1225,6 +1324,13 @@ function PlayerScreen(o) {
       tried.push(curVer);
       Toast.show(tr('La version {v} ne démarre pas : essai d’une autre version', { v: verLabel || '?' }), 4000);
       start();
+      return;
+    }
+    // en direct, une coupure isolée se relance tout de suite (écran noir le plus court possible)
+    if (live && retries === 0 && !quickRetried) {
+      quickRetried = true;
+      setStatus(loadingHTML());
+      retryTimer = setTimeout(function () { if (alive) start(); }, 300);
       return;
     }
     if (retries < RETRY_DELAYS.length) {
@@ -1310,7 +1416,7 @@ function PlayerScreen(o) {
     zapBox.textContent = o.channels[idx].num || o.channels[idx].name; zapBox.classList.remove('hidden');
     clearTimeout(zapTimer);
     zapTimer = setTimeout(function () {
-      zapBox.classList.add('hidden'); retries = 0; resumeAt = null; setStatus(''); Player.stop(); start();
+      zapBox.classList.add('hidden'); retries = 0; quickRetried = false; resumeAt = null; setStatus(''); Player.stop(); start();
     }, 450);
   }
   function seekBy(sec) {
@@ -1353,8 +1459,85 @@ function PlayerScreen(o) {
   }
 
   /* zapping rapide : la liste des chaînes, à gauche, sans quitter la lecture */
+  /* changer de bouquet sans quitter la lecture : la liste rapide et la mosaïque en profitent,
+     et Haut / Bas suivent ensuite le nouveau bouquet */
+  function bouquetName() { return (o.ctx && o.ctx.name) || tr('Chaînes'); }
+  function chooseBouquet(done) {
+    API.get('/api/categories?kind=live').then(function (d) {
+      var list = [{ id: 'fav', name: tr('Favoris') }, { id: 'all', name: tr('Toutes les chaînes') }].concat(d);
+      var curCat = o.ctx ? String(o.ctx.cat) : '';
+      // pas la classe « zap » : la mosaïque la cache, et ce choix doit aussi s'ouvrir par-dessus elle
+      var pv = { el: el('<div class="panel left zap-like"><div class="lbl">' + tr('Bouquet') + '</div>' +
+        '<div class="scroll-y" data-pad="120">' + list.map(function (c) {
+          var here = String(c.id) === curCat;
+          return '<div class="zrow focusable' + (here ? ' sel' : '') + '" data-bq="' + esc(c.id) + '" data-key="bq:' + esc(c.id) + '"' +
+            (here ? ' data-default' : '') + '><div class="zmeta"><div class="zname">' +
+            (c.src ? srcBadge(c.src, 'inline') : '') + esc(c.name) + lockMark(c) + '</div>' +
+            (c.count ? '<div class="znow">' + tr('{n} chaînes', { n: c.count }) + '</div>' : '') + '</div></div>';
+        }).join('') + '</div></div>') };
+      pv.onEnter = function (n) {
+        var id = n && n.getAttribute('data-bq');
+        if (!id) return Router.closeOverlay();
+        var c = list.filter(function (x) { return String(x.id) === id; })[0];
+        API.get('/api/live?cat=' + encodeURIComponent(id)).then(function (r) {
+          var chans = r.channels || [];
+          if (!chans.length) { Toast.show(tr('Aucune chaîne dans ce bouquet')); return; }
+          var playing = o.channels[idx];
+          var i = chans.findIndex(function (x) { return playing && x.id === playing.id; });
+          // la chaîne en cours n'est pas dans ce bouquet : elle reste en tête de liste, le temps de zapper
+          if (i < 0 && playing) { chans = [playing].concat(chans); i = 0; }
+          o.channels = chans;
+          o.ctx = { cat: id, src: 0, total: chans.length, name: c ? c.name : '' };
+          idx = Math.max(0, i);
+          Router.closeOverlay();
+          if (done) done(i >= 0);
+        }).catch(function (e) { if (e.message) Toast.show(e.message); });
+      };
+      Router.overlay(pv);
+      var cur = $('.zrow.sel', pv.el); if (cur) Focus.set(cur); else Focus.first(pv.el);
+    }).catch(function (e) { Toast.show(e.message); });
+  }
+
+  /* le programme en cours d'une chaîne, sans garder un titre déjà fini */
+  function nowOf(c) {
+    var t = nowSec();
+    if (c.now && c.now.stop > t) return c.now;
+    var p = (c.programmes || []).filter(function (x) { return x.stop > t; });
+    if (p.length) { c.now = p[0]; c.next = p[1] || null; return c.now; }
+    if (c.now && c.now.stop <= t) { c.now = null; c.next = null; }
+    return null;
+  }
+  /* un panneau qui se ferme seul quand on ne touche plus à la télécommande */
+  function idleClose(ov, ms) {
+    var t = null;
+    function arm() {
+      clearTimeout(t);
+      t = setTimeout(function () {
+        if (Router.overlays.indexOf(ov) < 0) return;
+        if (Router.top() !== ov) return arm();      // un choix est ouvert par-dessus : on attend
+        Router.closeOverlay();
+      }, ms);
+    }
+    arm();
+    return { reset: arm, stop: function () { clearTimeout(t); } };
+  }
+  /* les programmes en cours de toute la liste : une requête par bouquet, sinon chaîne par chaîne autour de i */
+  function refreshNow(around, done) {
+    if (o.ctx) {
+      API.get('/api/live?cat=' + encodeURIComponent(o.ctx.cat) + '&src=' + (o.ctx.src || 0)).then(function (d) {
+        var by = {}; (d.channels || []).forEach(function (c) { by[c.id] = c; });
+        o.channels.forEach(function (c) { var f = by[c.id]; if (f) { c.now = f.now; c.next = f.next; } });
+        if (alive) done(null);
+      }).catch(function () {});
+      return;
+    }
+    for (var i = Math.max(0, around - 8); i < Math.min(o.channels.length, around + 9); i++) {
+      (function (c, i) { if (!nowOf(c)) ensureNow(c, function () { done(i); }); })(o.channels[i], i);
+    }
+  }
+
   function zapPanel() {
-    var WIN = 240, start = 0, ov = null;
+    var WIN = 240, start = 0, ov = null, idle = null;
     function window_(center) {
       start = Math.max(0, Math.min(center - Math.floor(WIN / 2), o.channels.length - WIN));
       if (start < 0) start = 0;
@@ -1367,26 +1550,39 @@ function PlayerScreen(o) {
         logoHTML(c, 'zlogo') +
         '<div class="znum">' + (c.num || '') + '</div>' +
         '<div class="zmeta"><div class="zname">' + srcBadge(c.src, 'inline') + esc(c.name) + '</div>' +
-        '<div class="znow">' + esc(c.now ? c.now.title : '') + '</div></div>' +
+        '<div class="znow">' + esc((nowOf(c) || {}).title || '') + '</div></div>' +
         (here ? '<span class="bdg live">' + tr('EN DIRECT') + '</span>' : '') + '</div>';
     }
     function render(center) {
       var list = window_(center);
-      $('.scroll-y', ov.el).innerHTML = list.map(function (c, k) { return rowHTML(c, start + k); }).join('');
+      $('.scroll-y', ov.el).innerHTML = '<div class="zrow zbq focusable" data-act="bq" data-key="z:bq"><div class="zmeta">' +
+        '<div class="zname zbq-name">' + ICON.list + esc(bouquetName()) + '</div><div class="znow">' + tr('OK pour changer de bouquet') + '</div></div></div>' +
+        list.map(function (c, k) { return rowHTML(c, start + k); }).join('');
     }
     ov = { el: el('<div class="panel left zap"><div class="lbl">' + tr('Chaînes') + '</div>' +
       '<div class="scroll-y" data-pad="120"></div></div>') };
     ov.onEnter = function (n) {
+      if (n && n.getAttribute('data-act') === 'bq') {
+        // la liste se ferme le temps du choix, puis se rouvre sur le nouveau bouquet
+        Router.closeOverlay();
+        return chooseBouquet(function () { zapPanel(); });
+      }
       var i = n && n.getAttribute('data-ci');
       if (i === null || i === undefined) return Router.closeOverlay();
       Router.closeOverlay();
       zap(0, Number(i));
     };
+    ov.onKey = function () { if (idle) idle.reset(); return false; };
+    function updateRow(i) {
+      var n = ov && $('[data-ci="' + i + '"] .znow', ov.el);
+      if (n) n.textContent = (nowOf(o.channels[i]) || {}).title || '';
+    }
     // près du bord de la fenêtre affichée, on la recentre pour pouvoir continuer
     ov.onMove = function () {
       var cur = Focus.current && Focus.current.getAttribute('data-ci');
       if (cur === null || cur === undefined) return;
       var i = Number(cur);
+      if (!o.ctx) refreshNow(i, function (j) { updateRow(j); });
       if (o.channels.length <= WIN) return;
       if (i < start + 20 || i > start + WIN - 20) {
         render(i);
@@ -1400,7 +1596,14 @@ function PlayerScreen(o) {
     render(idx);
     var cur = $('[data-ci="' + idx + '"]', ov.el);
     if (cur) Focus.set(cur); else Focus.first(ov.el);
-    ov.onClose = function () { showUI(); };
+    idle = idleClose(ov, 10000);
+    ov.onClose = function () { idle.stop(); showUI(); };
+    // les titres affichés peuvent dater : on les redemande à l'ouverture
+    refreshNow(idx, function (j) {
+      if (Router.overlays.indexOf(ov) < 0) return;
+      if (j !== null) return updateRow(j);
+      for (var k = start; k < Math.min(o.channels.length, start + WIN); k++) updateRow(k);
+    });
   }
 
   /* fiche détaillée d'un programme, ouverte depuis la liste du guide */
@@ -1435,7 +1638,7 @@ function PlayerScreen(o) {
   /* ----- mosaïque : toutes les chaînes en vignettes, la chaîne en cours continue en petit ----- */
   function mosaic() {
     if (!live) return;
-    var COLS = 4, numBuf2 = '', numT = null, focusedIdx = idx, ov = null;
+    var COLS = 4, numBuf2 = '', numT = null, focusedIdx = idx, ov = null, mzIdle = null;
     // une longue liste n'est jamais dessinée en entier : une fenêtre de vignettes autour de la sélection
     var WIN = 96, wStart = 0;
     var VIDEO = { x: 1236, y: 64, w: 588, h: 331 };
@@ -1500,6 +1703,7 @@ function PlayerScreen(o) {
       '<div class="mz-video"><span class="mz-vlbl">' + tr('En cours de lecture') + '</span></div></div>' +
       '<div class="mz-grid scroll-y" data-pad="140"><div class="mz-row"></div></div>' +
       '<div class="hints"><span class="hint"><span class="key">OK</span>' + tr('Regarder') + '</span>' +
+      '<span class="hint"><span class="key blue">' + tr('Bleu') + '</span>' + tr('Bouquet') + ' · ' + '<span class="mz-bq">' + esc(bouquetName()) + '</span></span>' +
       '<span class="hint"><span class="key">0-9</span>' + tr('Aller au numéro') + '</span>' +
       '<span class="hint"><span class="key yellow">' + tr('Jaune') + '</span>' + tr('Favori') + '</span>' +
       '<span class="hint"><span class="key">' + tr('Retour') + '</span>' + tr('Fermer') + '</span></div></div>') };
@@ -1510,6 +1714,18 @@ function PlayerScreen(o) {
       if (Number(i) !== idx) { setStatus(''); zap(0, Number(i)); }
     };
     ov.onKey = function (k) {
+      if (mzIdle) mzIdle.reset();
+      if (k === KEY.BLUE) {
+        chooseBouquet(function () {
+          renderWindow(idx); focusedIdx = idx;
+          var b = $('.mz-bq', ov.el); if (b) b.textContent = bouquetName();
+          var n = $('[data-mi="' + idx + '"]', ov.el); if (n) Focus.set(n); else Focus.first(ov.el);
+          detail(idx);
+          // les programmes du nouveau bouquet, chaîne par chaîne, comme à l'ouverture
+          o.channels.forEach(function (c) { c._asked = false; });
+        });
+        return true;
+      }
       if (k >= 48 && k <= 57) {
         numBuf2 += String(k - 48); Toast.show(tr('Chaîne {n}', { n: numBuf2 }), 1300);
         clearTimeout(numT);
@@ -1539,7 +1755,7 @@ function PlayerScreen(o) {
         focusedIdx >= wStart + WIN - COLS * 2 && wStart + WIN < o.channels.length;
       if (near) { var keep = focusedIdx; renderWindow(keep); var n = $('[data-mi="' + keep + '"]', ov.el); if (n) Focus.set(n, true); }
     };
-    ov.onClose = function () { close(); showUI(); };
+    ov.onClose = function () { if (mzIdle) mzIdle.stop(); close(); showUI(); };
     ov.el.addEventListener('focused', function (e) {
       var i = e.target.getAttribute('data-mi');
       if (i !== null) { focusedIdx = Number(i); detail(focusedIdx); }
@@ -1547,6 +1763,7 @@ function PlayerScreen(o) {
     document.body.classList.add('mosaic-up');
     hideUI();
     Router.overlay(ov);
+    mzIdle = idleClose(ov, 30000);
     Player.setRect(VIDEO);
     renderWindow(idx);
     var cur = $('[data-mi="' + idx + '"]', ov.el);
@@ -1576,15 +1793,28 @@ function PlayerScreen(o) {
     };
     var info = v.label ? '<div class="lbl">' + tr('Flux') + '</div><div class="opt">' + esc(v.label + (v.width ? '  ' + v.width + '×' + v.height : '')) +
       '<span class="t" style="width:auto">' + esc(codecName(v.codec) + (v.audio ? ' · ' + v.audio : '')) + '</span></div>' : '';
-    var html = info + '<div class="lbl">' + tr('Audio') + '</div>' +
+    var disp = Player.display || 'box';
+    var html = info + '<div class="lbl">' + tr('Image') + '</div>' +
+      opt('d', 'box', tr('Entière, avec des bandes noires'), disp === 'box') +
+      opt('d', 'full', tr('Plein écran (étirée)'), disp === 'full') +
+      opt('d', 'auto', tr('D’après la vidéo'), disp === 'auto') +
+      '<div class="lbl">' + tr('Audio') + '</div>' +
       (t.audio.length ? t.audio.map(function (a) { return opt('a', a.index, a.label, a.index === t.curAudio); }).join('')
         : '<div class="opt">' + tr('Piste par défaut') + '</div>') +
       '<div class="lbl">' + tr('Sous-titres') + '</div>' + opt('t', -1, tr('Désactivés'), t.curText < 0) +
       t.text.map(function (a) { return opt('t', a.index, a.label, a.index === t.curText); }).join('');
-    var ov = { el: el('<div class="panel"><h2>' + tr('Audio et sous-titres') + '</h2><div class="scroll-y" data-pad="60">' + html + '</div></div>') };
+    var ov = { el: el('<div class="panel"><h2>' + tr('Image, son et sous-titres') + '</h2><div class="scroll-y" data-pad="60">' + html + '</div></div>') };
     ov.onEnter = function (n) {
       var type = n.getAttribute('data-type'), index = Number(n.getAttribute('data-index'));
+      if (type === 'd') {
+        var mode = n.getAttribute('data-index');
+        Player.setDisplay(mode); Store.set(displayKey(), mode);
+        if (live) Store.set('ar.live', mode);   // la chaîne suivante jamais réglée part du dernier choix
+        Router.closeOverlay(); return;
+      }
       if (type === 'a') Player.selectAudio(index); else if (type === 't') Player.selectText(index);
+      // dans une série, le choix suit les épisodes suivants
+      if (o.mode === 'episode' && o.series && !o.extra) Store.set('trk.s.' + o.series.id, Player.currentLang());
       Router.closeOverlay();
     };
     ov.onClose = function () { showUI(); };
@@ -1600,7 +1830,7 @@ function PlayerScreen(o) {
     else if (act === 'next') { setStatus(''); zap(1); }
     else if (act === 'rw') seekBy(replay ? -300 : -10);
     else if (act === 'ff') seekBy(replay ? 300 : 30);
-    else if (act === 'retry') { retries = 0; setStatus(''); start(); }
+    else if (act === 'retry') { retries = 0; quickRetried = false; setStatus(''); start(); }
     else if (act === 'guide') guidePanel();
     else if (act === 'mosaic') mosaic();
     else if (act === 'tracks') tracksPanel();
@@ -1693,7 +1923,7 @@ function PlayerScreen(o) {
     epgTimer = setInterval(function () { if (live) refreshEpg(); }, 30000);
     watchdog = setInterval(function () {
       if (!alive || userPaused || Player.state === 'idle' || seekTarget !== null) return;
-      if (Date.now() - lastTick > (live ? 20000 : 30000)) failed(tr('le flux s’est figé'));
+      if (Date.now() - lastTick > (live ? 10000 + Store.get('liveBuffer', 3) * 1000 : 30000)) failed(tr('le flux s’est figé'));
     }, 5000);
   };
   s.hide = function () { clearTimeout(retryTimer); clearTimeout(zapTimer); clearTimeout(seekTimer); Player.cb = {}; };
@@ -1792,7 +2022,7 @@ function CatalogScreen(kind) {
     API.get('/api/categories?kind=' + kind).then(function (d) {
       chips.innerHTML = [{ id: 'all', name: tr(isVod ? 'Tous les films' : 'Toutes les séries') }].concat(d).map(function (c) {
         return '<div class="chip focusable' + (c.id === cat ? ' active' : '') + '" data-cat="' + esc(c.id) + '" data-key="cat:' + esc(c.id) + '">' +
-          (c.src ? srcBadge(c.src, 'inline') : '') + esc(c.name) + '</div>';
+          (c.src ? srcBadge(c.src, 'inline') : '') + esc(c.name) + lockMark(c) + '</div>';
       }).join('');
     }).catch(function () {});
   }
@@ -1959,8 +2189,12 @@ function SeriesScreen(id) {
     var r = d.resume, label = r ? tr('{l} S{s} · É{e}', { l: tr(r.next ? 'Regarder' : 'Reprendre'), s: r.season, e: r.episode }) : tr('Regarder');
     var meta = [d.seasons.length ? tr(d.seasons.length > 1 ? '{n} saisons' : '{n} saison', { n: d.seasons.length }) : '', d.genre,
       fmtRating(d.rating) ? '★ ' + fmtRating(d.rating) : ''].filter(Boolean).map(esc).join(' <span class="sep">|</span> ');
-    box.innerHTML = '<h1 style="font-size:64px">' + esc(d.name) + '</h1><div class="meta">' + meta + '</div>' +
+    box.innerHTML = (d.logo ? '<h1 class="has-logo"><img class="title-logo sm" src="' + esc(API.img(d.logo)) + '" alt="' + esc(d.name) +
+        '" onerror="var h=this.parentNode;h.classList.remove(\'has-logo\');h.style.fontSize=\'64px\';h.textContent=this.alt"></h1>'
+        : '<h1 style="font-size:64px">' + esc(d.name) + '</h1>') + '<div class="meta">' + meta + '</div>' +
       (d.plot ? '<p class="plot" style="-webkit-line-clamp:2">' + esc(d.plot) + '</p>' : '') +
+      (d.director || d.cast ? '<div class="meta" style="font-size:19px">' +
+        esc([d.director ? tr('Création : {n}', { n: d.director }) : '', d.cast ? tr('Avec : {n}', { n: d.cast }) : ''].filter(Boolean).join(' · ').slice(0, 200)) + '</div>' : '') +
       '<div class="actions" data-group="act" data-nav-down="seasons">' +
       (flat.length ? '<button class="btn focusable" data-default data-act="play" data-key="play">' + ICON.play + esc(label) + '</button>' : '') +
       (r ? '<button class="btn focusable" data-act="restart" data-key="restart">' + tr('Depuis le début') + '</button>' : '') +
@@ -2434,7 +2668,7 @@ function SearchScreen() {
 function SettingsScreen() {
   var s = baseScreen('settings', headerHTML('settings') +
     '<div class="page-top"><h1>' + tr('Réglages') + '</h1></div><div class="settings scroll-y" data-group="set" data-pad="80"></div>');
-  var box = $('.settings', s.el), st = null, subs = [];
+  var box = $('.settings', s.el), st = null, subs = [], lockOn = false;
   /* une ligne par abonnement : état, échéance, connexions */
   function subsHTML() {
     return subs.map(function (p) {
@@ -2469,6 +2703,18 @@ function SettingsScreen() {
       '<span class="val">' + (LANG === 'en' ? 'English' : 'Français') + '</span></div>' +
       '<div class="set-row focusable" data-act="theme" data-key="theme"><div>' + tr('Thème') + '<small>' + tr('Couleur d’accent de l’interface') + '</small></div>' +
       '<span class="val"><span class="swatch"></span>' + tr(theme === 'ambre' ? 'Ambre' : 'Luciole (vert)') + '</span></div>' +
+      '<div class="set-row focusable" data-act="tracks" data-key="tracks"><div>' + tr('Langue audio et sous-titres') +
+      '<small>' + tr('Choisis d’avance pour le direct, les films et les séries') + '</small></div>' +
+      '<span class="val">' + esc(trackPrefLabel(trackPref('movie'))) + ' ›</span></div>' +
+      (lockOn ? '<div class="set-row focusable" data-act="lock" data-key="lock"><div>' + tr('Code parental') +
+      '<small>' + tr(API.unlock ? 'Les bouquets verrouillés sont ouverts. OK pour les refermer.' : 'Les bouquets verrouillés demandent le code. Il se choisit sur la page web.') + '</small></div>' +
+      '<span class="val">' + ICON.lock + ' ' + tr(API.unlock ? 'ouvert' : 'fermé') + '</span></div>' : '') +
+      '<div class="set-row focusable" data-act="buffer" data-key="buffer"><div>' + tr('Mémoire tampon du direct') +
+      '<small>' + tr('Plus longue : moins de coupures sur un flux irrégulier, mais un zapping plus lent') + '</small></div>' +
+      '<span class="val">' + tr('{n} s', { n: Store.get('liveBuffer', 3) }) + '</span></div>' +
+      '<div class="set-row focusable" data-act="subsize" data-key="subsize"><div>' + tr('Taille des sous-titres') +
+      '<small>' + tr('OK pour changer') + '</small></div>' +
+      '<span class="val">' + esc(tr(SUB_SIZES[Store.get('subSize', 'm')] || 'Moyenne')) + '</span></div>' +
       '<div class="set-row focusable" data-act="quality" data-key="quality"><div>' + tr('Qualité des films de la médiathèque') +
       '<small>' + tr('Quand un film existe en plusieurs versions (4K, 1080p, 720p)') + '</small></div>' +
       '<span class="val">' + esc(qualityLabel(maxQuality())) + '</span></div>' +
@@ -2478,13 +2724,15 @@ function SettingsScreen() {
       '<div class="set-row focusable" data-act="sync" data-key="sync"><div>' + tr('Mettre à jour le catalogue maintenant') + '<small>' +
       (st ? (st.syncing ? tr('Mise à jour en cours…') : tr('Dernière mise à jour : {w}', { w: esc(when) })) : tr('État inconnu')) + '</small></div>' +
       '<span class="val">' + (st ? tr('{l} chaînes · {v} films · {s} séries', { l: st.counts.live, v: st.counts.vod, s: st.counts.series }) : '') + '</span></div>' +
-      '<div class="set-row"><div>' + tr('Bouquets, noms, numéros et guide') +
+      // lignes d'information : sélectionnables sans action, sinon la page ne défile pas jusqu'à elles
+      '<div class="set-row focusable" data-key="info-web"><div>' + tr('Bouquets, noms, numéros et guide') +
       '<small>' + tr('Depuis le navigateur d’un ordinateur : {u}', { u: esc(API.base) }) + '</small></div></div>' +
-      '<div class="set-row"><div>Luciole ' + VERSION + '<small>' +
+      '<div class="set-row focusable" data-key="info-version"><div>Luciole ' + VERSION + '<small>' +
       tr('OK valider · Retour revenir · jaune favori · vert replay · bleu modifier · Info la chaîne · 0-9 numéro') + '</small></div></div>';
   }
   function status() {
     API.get('/api/providers').then(function (d) { subs = d.providers || []; keepFocus(s.el, render); }).catch(function () {});
+    API.get('/api/lock').then(function (d) { lockOn = !!d.pin; keepFocus(s.el, render); }).catch(function () {});
     API.get('/api/tv').then(function (d) { if (st) { st.tv = d; keepFocus(s.el, render); } }).catch(function () {});
     API.get('/api/status').then(function (d) {
       var tv = st && st.tv; st = d; st.tv = tv; Providers.set(d.providers || []); keepFocus(s.el, render);
@@ -2495,6 +2743,19 @@ function SettingsScreen() {
     var act = n.getAttribute('data-act');
     if (act === 'server') Router.push(SetupScreen(false));
     if (act === 'autostart') Router.push(AutostartScreen());
+    if (act === 'tracks') Router.push(TrackSettingsScreen());
+    if (act === 'lock') {
+      if (API.unlock) { Lock.close(); Toast.show(tr('Bouquets verrouillés refermés')); keepFocus(s.el, render); }
+      else Lock.ask(function () { Toast.show(tr('Bouquets verrouillés ouverts')); keepFocus(s.el, render); });
+    }
+    if (act === 'buffer') {
+      var steps = [3, 8, 15, 30], b = steps[(steps.indexOf(Store.get('liveBuffer', 3)) + 1) % steps.length];
+      Store.set('liveBuffer', b); keepFocus(s.el, render);
+    }
+    if (act === 'subsize') {
+      var order = ['s', 'm', 'l', 'xl'], sz = order[(order.indexOf(Store.get('subSize', 'm')) + 1) % order.length];
+      Store.set('subSize', sz); applySubSize(sz); keepFocus(s.el, render);
+    }
     if (act === 'sub') API.post('/api/sync').then(function () { Toast.show(tr('Mise à jour lancée')); status(); }).catch(function (e) { Toast.show(e.message); });
     if (act === 'preview') { Store.set('preview', !Store.get('preview', true)); keepFocus(s.el, render); }
     if (act === 'quality') {
@@ -2516,6 +2777,120 @@ function SettingsScreen() {
     if (act === 'sync') API.post('/api/sync').then(function () { Toast.show(tr('Mise à jour lancée')); status(); }).catch(function (e) { Toast.show(e.message); });
   };
   s.show = function () { render(); status(); };
+  return s;
+}
+
+/* =====================================================================
+   CODE PARENTAL
+   Un bouquet verrouillé garde un cadenas ; l'ouvrir (ou lire un de ses titres) demande le code.
+   Une fois tapé, tout reste ouvert jusqu'à la fermeture de l'appli.
+   ===================================================================== */
+function lockMark(c) { return c && c.locked && !API.unlock ? '<span class="lockmark">' + ICON.lock + '</span>' : ''; }
+var Lock = {
+  busy: false,
+  ask: function (onOk, onCancel) {
+    if (this.busy) { if (onCancel) onCancel(); return; }
+    this.busy = true;
+    var self = this, code = '', done = false;
+    var keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'ok'];
+    var ov = { el: el('<div class="dialog-back"><div class="dialog pinpad" role="dialog" aria-label="' + tr('Code parental') + '">' +
+      '<h2>' + ICON.lock + ' ' + tr('Code parental') + '</h2>' +
+      '<p class="help">' + tr('Tapez le code avec les chiffres de la télécommande, puis OK.') + '</p>' +
+      '<div class="pin-dots"></div><div class="error"></div>' +
+      '<div class="keys">' + keys.map(function (k, i) {
+        return '<button class="btn focusable" data-k="' + k + '"' + (i === 0 ? ' data-default' : '') + '>' +
+          (k === 'del' ? '⌫' : (k === 'ok' ? tr('OK') : k)) + '</button>';
+      }).join('') + '</div></div></div>') };
+    function draw() {
+      $('.pin-dots', ov.el).innerHTML = code ? code.split('').map(function () { return '<i></i>'; }).join('') : '<span>' + tr('— — — —') + '</span>';
+    }
+    function finish(ok) {
+      if (done) return;
+      done = true; self.busy = false;
+      Router.closeOverlay();
+      if (ok) { $$('.lockmark').forEach(function (m) { m.remove(); }); if (onOk) onOk(); } else if (onCancel) onCancel();
+    }
+    function submit() {
+      if (code.length < 4) { $('.error', ov.el).textContent = tr('Le code compte au moins 4 chiffres.'); return; }
+      $('.error', ov.el).textContent = '';
+      API.req('POST', '/api/lock/unlock', { pin: code }, null, true).then(function (r) {
+        API.unlock = r.token; finish(true);
+      }).catch(function (e) {
+        code = ''; draw(); $('.error', ov.el).textContent = e.message;
+      });
+    }
+    function press(k) {
+      if (k === 'del') code = code.slice(0, -1);
+      else if (k === 'ok') return submit();
+      else if (code.length < 8) code += k;
+      draw();
+    }
+    ov.onEnter = function (n) { var k = n.getAttribute('data-k'); if (k) press(k); };
+    ov.onKey = function (k) {
+      // chiffres de la télécommande : la sélection passe sur OK, il ne reste qu'à valider
+      if (k >= 48 && k <= 57) { press(String(k - 48)); Focus.set($('[data-k="ok"]', ov.el), true); return true; }
+      if (k === KEY.BACK || k === KEY.ESC) { finish(false); return true; }
+      return false;
+    };
+    ov.onClose = function () { if (!done) { done = true; self.busy = false; if (onCancel) onCancel(); } };
+    Router.overlay(ov); draw();
+  },
+  close: function () {
+    if (!API.unlock) return;
+    API.post('/api/lock/close', { token: API.unlock }).catch(function () {});
+    API.unlock = '';
+  }
+};
+
+/* =====================================================================
+   LANGUE AUDIO ET SOUS-TITRES (par type de contenu)
+   ===================================================================== */
+var SUB_SIZES = { s: 'Petite', m: 'Moyenne', l: 'Grande', xl: 'Très grande' };
+function applySubSize(sz) {
+  ['s', 'm', 'l', 'xl'].forEach(function (k) { document.body.classList.toggle('subs-' + k, k === sz); });
+}
+var TRACK_LANGS = ['', 'fr', 'en', 'nl', 'de', 'es', 'it', 'pt', 'ar', 'tr'];
+var SUB_CHOICES = ['auto', 'off', 'fr', 'en', 'nl', 'de', 'es', 'it', 'pt', 'ar', 'tr'];
+function trackPref(kind) {
+  var p = Store.get('trk.' + kind, null) || {};
+  return { a: p.a || '', t: p.t || 'auto' };
+}
+function audioPrefLabel(a) { return a ? langName(a) : tr('Celle du flux'); }
+function subPrefLabel(t) { return t === 'off' ? tr('Désactivés') : (t === 'auto' ? tr('Ceux du flux') : langName(t)); }
+function trackPrefLabel(p) { return audioPrefLabel(p.a) + ' · ' + subPrefLabel(p.t); }
+
+function TrackSettingsScreen() {
+  var s = baseScreen('tracks', headerHTML('settings') +
+    '<div class="page-top"><div class="icon-btn focusable" data-act="back" aria-label="' + tr('Retour') + '">' + ICON.back + '</div>' +
+    '<h1>' + tr('Langue audio et sous-titres') + '</h1></div><div class="settings scroll-y" data-group="set" data-pad="80"></div>');
+  var box = $('.settings', s.el);
+  var KINDS = [['live', 'En direct'], ['movie', 'Films'], ['series', 'Séries']];
+  function render() {
+    box.innerHTML = KINDS.map(function (k, i) {
+      var p = trackPref(k[0]);
+      return '<div class="set-row focusable"' + (i === 0 ? ' data-default' : '') + ' data-act="a" data-kind="' + k[0] + '" data-key="a:' + k[0] + '"><div>' +
+        tr(k[1]) + ' · ' + tr('Audio') + '<small>' + tr('OK pour changer. Si la langue manque, le flux garde la sienne.') + '</small></div>' +
+        '<span class="val">' + esc(audioPrefLabel(p.a)) + '</span></div>' +
+        '<div class="set-row focusable" data-act="t" data-kind="' + k[0] + '" data-key="t:' + k[0] + '"><div>' +
+        tr(k[1]) + ' · ' + tr('Sous-titres') + '<small>' + tr('OK pour changer.') + '</small></div>' +
+        '<span class="val">' + esc(subPrefLabel(p.t)) + '</span></div>';
+    }).join('') +
+      // sélectionnable, sans action : sinon la page ne défile pas jusqu'à cette explication
+      '<div class="set-row focusable" data-key="info"><div>' + tr('Dans une série') +
+      '<small>' + tr('Un changement fait pendant un épisode est gardé pour les épisodes suivants de la même série.') + '</small></div></div>';
+  }
+  s.onEnter = function (n) {
+    var act = n.getAttribute('data-act');
+    if (act === 'back') return Router.back();
+    var kind = n.getAttribute('data-kind');
+    if (!kind) return;
+    var p = trackPref(kind);
+    if (act === 'a') p.a = TRACK_LANGS[(TRACK_LANGS.indexOf(p.a) + 1) % TRACK_LANGS.length];
+    if (act === 't') p.t = SUB_CHOICES[(SUB_CHOICES.indexOf(p.t) + 1) % SUB_CHOICES.length];
+    Store.set('trk.' + kind, p);
+    keepFocus(s.el, render);
+  };
+  s.show = function () { keepFocus(s.el, render); };
   return s;
 }
 
@@ -2556,7 +2931,7 @@ function AutostartScreen() {
       '<div class="set-row focusable" data-act="pair" data-key="pair"><div>' + tr('Autoriser le serveur') +
       '<small>' + tr('Une fenêtre Samsung s’ouvre : acceptez-la avec la télécommande. Une seule fois.') + '</small></div>' +
       '<span class="val">' + tr(d.paired ? 'autorisé' : 'à faire') + '</span></div>' +
-      '<div class="set-row"><div>' + tr('État') + '<small>' + esc(stateTxt.join(' · ')) + '</small></div></div>';
+      '<div class="set-row focusable" data-key="info-state"><div>' + tr('État') + '<small>' + esc(stateTxt.join(' · ')) + '</small></div></div>';
   }
   function load() {
     API.get('/api/tv').then(function (r) { d = r; keepFocus(s.el, render); }).catch(function (e) { Toast.show(e.message); });

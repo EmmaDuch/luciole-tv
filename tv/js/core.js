@@ -1,7 +1,7 @@
 /* Luciole — socle : stockage, API, touches, focus, navigation entre écrans */
 'use strict';
 
-var VERSION = '1.0.0';
+var VERSION = '1.0.1';
 var IS_TV = typeof window.tizen !== 'undefined';
 var SCALE = 1;
 
@@ -79,6 +79,8 @@ var ICON = {
   bookmarkFill: '<svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z"/></svg>',
   star: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg>',
   starFill: '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg>',
+  list: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/></svg>',
+  lock: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
   check: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>',
   guide: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v16"/></svg>',
   subs: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 13h4M13 13h4M7 16h10"/></svg>',
@@ -109,6 +111,7 @@ var Store = {
 /* ---------- API du serveur Luciole ---------- */
 var API = {
   base: '', token: '', skew: 0,
+  unlock: '',     // jeton du code parental : en mémoire seulement, il se perd à la fermeture de l'appli
   load: function () { this.base = Store.get('server', ''); this.token = Store.get('token', ''); },
   normalize: function (addr) {
     addr = String(addr || '').trim().replace(/\/+$/, '');
@@ -130,14 +133,23 @@ var API = {
     if (this.token) u += (u.indexOf('?') < 0 ? '?' : '&') + 'token=' + encodeURIComponent(this.token);
     return u;
   },
-  req: function (method, path, body, base) {
+  req: function (method, path, body, base, again) {
     var self = this, ctrl = window.AbortController ? new AbortController() : null;
     var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, 20000);
     var headers = {};
     if (this.token) headers['X-Luciole-Token'] = this.token;
+    if (this.unlock) headers['X-Luciole-Unlock'] = this.unlock;
     if (body) headers['Content-Type'] = 'application/json';
     return fetch((base || this.base) + path, { method: method, headers: headers, body: body ? JSON.stringify(body) : undefined, signal: ctrl ? ctrl.signal : undefined })
       .then(function (r) {
+        // contenu fermé par le code parental : on demande le code, puis on refait la même demande
+        if (r.status === 423 && !again && window.Lock) {
+          clearTimeout(timer);
+          return new Promise(function (ok, no) {
+            Lock.ask(function () { self.req(method, path, body, base, true).then(ok, no); },
+                     function () { no(new Error(tr('verrouillé par le code parental'))); });
+          });
+        }
         return r.json().catch(function () { return {}; }).then(function (d) {
           if (!r.ok) throw new Error(d.error ? tr(d.error) : tr('erreur {n}', { n: r.status }));
           if (d && typeof d.now === 'number') self.skew = d.now - Math.floor(Date.now() / 1000);

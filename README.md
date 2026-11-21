@@ -47,7 +47,7 @@ Luciole est en deux morceaux :
 
 ## Installer
 
-Les deux fichiers à installer, `luciole-server-1.0.0.tar.gz` (le serveur) et `Luciole.wgt` (l'appli du téléviseur),
+Les deux fichiers à installer, `luciole-server-1.0.1.tar.gz` (le serveur) et `Luciole.wgt` (l'appli du téléviseur),
 sont sur la page [Releases](https://github.com/EmmaDuch/luciole-tv/releases) du dépôt.
 
 1. **Le serveur** : voir [server/LISEZMOI.md](server/LISEZMOI.md). Deux exemples complets :

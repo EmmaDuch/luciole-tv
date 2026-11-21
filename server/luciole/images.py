@@ -4,6 +4,7 @@ import io
 import json
 import os
 import threading
+import time
 import urllib.parse
 import urllib.request
 
@@ -12,6 +13,40 @@ from PIL import Image
 
 WIDTHS = (64, 96, 128, 160, 240, 320, 480, 640, 1280, 1920)
 MAX_SOURCE = 15 * 1024 * 1024
+KEEP_DAYS = 30          # une image du cache que personne n'a affichée depuis ce délai est effacée
+DAY = 86400
+
+
+def prune(data_dir, days=KEEP_DAYS):
+    """Vide le cache des images qui n'ont plus servi : vignettes de programmes passés surtout.
+    Le dossier art/ (images choisies à la main) n'est jamais touché. Renvoie (fichiers, octets)."""
+    root = os.path.join(data_dir, "img")
+    limit = time.time() - days * DAY
+    count = size = 0
+    for sub in os.listdir(root) if os.path.isdir(root) else []:
+        folder = os.path.join(root, sub)
+        if not os.path.isdir(folder):
+            continue
+        for name in os.listdir(folder):
+            path = os.path.join(folder, name)
+            try:
+                st = os.stat(path)
+                if st.st_mtime < limit:
+                    os.remove(path)
+                    count += 1
+                    size += st.st_size
+            except OSError:
+                pass
+    return count, size
+
+
+def _touch(path):
+    """Marque une image comme utilisée (une fois par jour suffit : prune() regarde la date)."""
+    try:
+        if os.stat(path).st_mtime < time.time() - DAY:
+            os.utime(path)
+    except OSError:
+        pass
 
 
 class ImageCache:
@@ -51,13 +86,15 @@ class ImageCache:
         return parts.scheme in ("http", "https") and parts.hostname in self._hosts
 
     def get(self, url, width, mode=""):
-        """Renvoie (chemin, type MIME) ou None. mode="logo" : logo de chaîne normalisé (logos.py)."""
+        """Renvoie (chemin, type MIME) ou None. mode="logo" : logo de chaîne normalisé (logos.py) ;
+        mode="logow" : le même, au plus près, sans carré autour."""
         width = next((w for w in WIDTHS if w >= width), WIDTHS[-1])
-        logo = mode == "logo"
-        key = hashlib.sha1((url + ("|logo" + logos.VERSION if logo else "")).encode()).hexdigest()
+        logo = mode in ("logo", "logow")
+        key = hashlib.sha1((url + ("|" + mode + logos.VERSION if logo else "")).encode()).hexdigest()
         for ext, mime in (("jpg", "image/jpeg"), ("png", "image/png")):
             path = os.path.join(self.dir, key[:2], f"{key}-{width}.{ext}")
             if os.path.exists(path):
+                _touch(path)
                 return path, mime
         local = self.local_path(url)
         if not local and not self.allowed(url):
@@ -77,7 +114,7 @@ class ImageCache:
                 img.draft("RGB", (width, width * 2))  # décodage JPEG plus rapide
             img.load()
             if logo:
-                img = logos.process(img, width)
+                img = logos.process(img, width, tight=mode == "logow")
         except Exception:
             return None
         if not logo and img.width > width:

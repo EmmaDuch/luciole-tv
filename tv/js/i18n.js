@@ -52,7 +52,7 @@ var EN = {
   'Impossible de joindre {b} : {e}. Vérifiez l’adresse et que le serveur est démarré.': 'Cannot reach {b}: {e}. Check the address and that the server is running.',
   /* accueil */
   'Le catalogue est vide pour l’instant. Vérifiez la synchronisation dans les Réglages.': 'The catalogue is empty for now. Check the synchronisation in Settings.',
-  'Film ajouté {d}': 'Movie added {d}', 'Épisode suivant': 'Next episode', 'Reprendre la lecture': 'Continue watching',
+  'Film ajouté {d}': 'Movie added {d}', 'Série mise à jour {d}': 'Series updated {d}', 'Épisode suivant': 'Next episode', 'Reprendre la lecture': 'Continue watching',
   'Saison {s} · Épisode {e}': 'Season {s} · Episode {e}', 'La chaîne': 'Channel', 'Voir la fiche': 'Details',
   'Chaînes favorites': 'Favourite channels', 'Touche jaune dans le guide pour en ajouter': 'Yellow button in the guide to add some',
   'Aucune chaîne favorite. Dans le guide, placez-vous sur une chaîne et appuyez sur la touche jaune.': 'No favourite channels. In the guide, move to a channel and press the yellow button.',
@@ -115,7 +115,7 @@ var EN = {
   'À regarder plus tard': 'Watch later', 'Vos favoris et films mis de côté': 'Your favourites and saved movies',
   'Vos favoris et séries mises de côté': 'Your favourites and saved series', 'Rien dans cette catégorie.': 'Nothing in this category.',
   /* fiches */
-  'Réalisation : {n}': 'Directed by: {n}', 'Avec : {n}': 'Starring: {n}', 'Bande-annonce': 'Trailer',
+  'Création : {n}': 'Created by: {n}', 'Réalisation : {n}': 'Directed by: {n}', 'Avec : {n}': 'Starring: {n}', 'Bande-annonce': 'Trailer',
   '{n} saison': '{n} season', '{n} saisons': '{n} seasons', 'Saison {n}': 'Season {n}',
   '{l} S{s} · É{e}': '{l} S{s} · E{e}', 'Aucun épisode disponible pour l’instant.': 'No episodes available yet.',
   'É{e} · {t}': 'E{e} · {t}', 'Vu': 'Watched',
@@ -190,7 +190,24 @@ var EN = {
   'Aucun film dans votre Bibliothèque. Sur la fiche d’un film, choisissez « Bibliothèque ».': 'No movies in your Library. On a movie page, choose “Library”.', 'catégorie inconnue': 'unknown category', 'titre inconnu': 'unknown title',
   /* langues des pistes */
   'Français': 'French', 'Anglais': 'English', 'Néerlandais': 'Dutch', 'Allemand': 'German', 'Espagnol': 'Spanish',
-  'Italien': 'Italian', 'Portugais': 'Portuguese', 'Arabe': 'Arabic', 'Turc': 'Turkish'
+  'Italien': 'Italian', 'Portugais': 'Portuguese', 'Arabe': 'Arabic', 'Turc': 'Turkish',
+  /* langue audio et sous-titres par type de contenu */
+  'Langue audio et sous-titres': 'Audio language and subtitles', 'Choisis d’avance pour le direct, les films et les séries': 'Chosen in advance for live TV, movies and series',
+  'Celle du flux': 'Stream default', 'Ceux du flux': 'Stream default',
+  'OK pour changer. Si la langue manque, le flux garde la sienne.': 'OK to change. If the language is missing, the stream keeps its own.',
+  'OK pour changer.': 'OK to change.', 'OK pour changer': 'OK to change', 'Image': 'Picture', 'Image, son et sous-titres': 'Picture, sound and subtitles',
+  'Entière, avec des bandes noires': 'Whole picture, with black bars', 'Plein écran (étirée)': 'Full screen (stretched)',
+  'D’après la vidéo': 'From the video', 'Bouquet': 'Bouquet', 'OK pour changer de bouquet': 'OK to change bouquet',
+  'Aucune chaîne dans ce bouquet': 'No channel in this bouquet', '{n} chaînes': '{n} channels', 'Mémoire tampon du direct': 'Live TV buffer', '{n} s': '{n} s',
+  'Plus longue : moins de coupures sur un flux irrégulier, mais un zapping plus lent': 'Longer: fewer cuts on an unsteady stream, but slower zapping', 'Code parental': 'Parental code',
+  'Tapez le code avec les chiffres de la télécommande, puis OK.': 'Type the code with the remote’s number keys, then OK.',
+  'Le code compte au moins 4 chiffres.': 'The code has at least 4 digits.', 'code incorrect': 'wrong code',
+  'verrouillé par le code parental': 'locked by the parental code', '— — — —': '— — — —',
+  'Les bouquets verrouillés sont ouverts. OK pour les refermer.': 'Locked bouquets are open. OK to lock them again.',
+  'Les bouquets verrouillés demandent le code. Il se choisit sur la page web.': 'Locked bouquets ask for the code. It is chosen on the web page.',
+  'ouvert': 'open', 'fermé': 'locked', 'Bouquets verrouillés refermés': 'Locked bouquets closed again', 'Bouquets verrouillés ouverts': 'Locked bouquets opened', 'Taille des sous-titres': 'Subtitle size',
+  'Petite': 'Small', 'Moyenne': 'Medium', 'Grande': 'Large', 'Très grande': 'Extra large', 'Dans une série': 'Within a series',
+  'Un changement fait pendant un épisode est gardé pour les épisodes suivants de la même série.': 'A change made during an episode is kept for the next episodes of the same series.'
 };
 
 var DAYS = { fr: ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'], en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] };

@@ -8,7 +8,8 @@
 
   /* ---------- outils ---------- */
   function api(method, path, body) {
-    var o = { method: method, headers: {} };
+    // la page des réglages voit tout, même ce que le code parental ferme sur la TV
+    var o = { method: method, headers: { 'X-Luciole-Admin': '1' } };
     if (token) o.headers['X-Luciole-Token'] = token;
     if (body) { o.headers['Content-Type'] = 'application/json'; o.body = JSON.stringify(body); }
     return fetch(path, o).then(function (r) {
@@ -96,6 +97,81 @@
   }
   function confirmBox(title, text, onOk, okLabel) {
     dialog(title, function (box) { box.append(mk('p', '', text)); return null; }, function () { return onOk(); }, okLabel || tr('Confirmer'));
+  }
+
+  /* ---------- code parental ---------- */
+  var lockState = { pin: false, locked: { live: [], vod: [], series: [] } }, pinCache = '';
+  function loadLock() {
+    return api('GET', '/api/lock').then(function (d) { lockState = d; renderLockBox(); return d; }).catch(function () {});
+  }
+  function isLocked(kind, ref) { return (lockState.locked[kind] || []).indexOf(String(ref)) > -1; }
+  function askPin(title, label, onOk) {
+    dialog(title, function (box) {
+      box.append(mk('label', 'lbl', label));
+      var i = mk('input', 'edit w100'); i.type = 'password'; i.inputMode = 'numeric'; i.autocomplete = 'off';
+      i.maxLength = 8; i.placeholder = '••••';
+      i.addEventListener('keydown', function (e) { if (e.key === 'Enter') $('dlg-ok').click(); });
+      box.append(i);
+      return i;
+    }, function (i) { return onOk(i.value.trim()); });
+  }
+  /* le code actuel, demandé une fois par visite de la page */
+  function withPin(fn) {
+    if (!lockState.pin) {
+      return askPin(tr('Choisir un code parental'), tr('Nouveau code (4 à 8 chiffres)'), function (v) {
+        return api('POST', '/api/lock/pin', { pin: v }).then(function () { pinCache = v; return loadLock(); }).then(function () { return fn(pinCache); });
+      });
+    }
+    if (pinCache) return fn(pinCache).catch(function (e) { pinCache = ''; alert(e.message); });
+    askPin(tr('Code parental'), tr('Code actuel'), function (v) {
+      return fn(v).then(function (r) { pinCache = v; return r; });
+    });
+  }
+  function toggleLock(kind, ref, on, then) {
+    withPin(function (pin) {
+      return api('POST', '/api/lock/set', { kind: kind, id: String(ref), on: on, current: pin }).then(function () { return loadLock(); }).then(then);
+    });
+  }
+  function lockButton(kind, ref, then) {
+    var on = isLocked(kind, ref);
+    var b = mk('button', 'link lockbtn' + (on ? ' on' : ''), on ? '🔒 ' + tr('Verrouillé') : tr('Verrouiller'));
+    b.title = tr(on ? 'Retirer le code parental de ce bouquet' : 'Demander le code parental sur la TV');
+    b.onclick = function () { toggleLock(kind, ref, !on, then); };
+    return b;
+  }
+  function renderLockBox() {
+    var box = $('lockbox'); if (!box) return;
+    box.textContent = '';
+    var n = lockState.locked.live.length + lockState.locked.vod.length + lockState.locked.series.length;
+    var txt = mk('div', '');
+    txt.append(mk('strong', '', tr('Code parental')),
+      mk('small', '', lockState.pin ? tr('Actif · {n} bouquet(s) verrouillé(s). Sur la TV, ils gardent un cadenas et demandent le code.', { n: n })
+                                     : tr('Aucun code. Choisissez-en un pour verrouiller des bouquets (chaînes, films ou séries pour adultes).')));
+    var acts = mk('div', 'acts');
+    var set = mk('button', 'btn small', lockState.pin ? tr('Changer le code') : tr('Choisir un code'));
+    set.onclick = function () {
+      if (!lockState.pin) return withPin(function () { return Promise.resolve(); });
+      withPin(function (cur) {
+        return new Promise(function (ok) {
+          askPin(tr('Nouveau code'), tr('Nouveau code (4 à 8 chiffres)'), function (v) {
+            return api('POST', '/api/lock/pin', { pin: v, current: cur }).then(function () { pinCache = v; ok(); return loadLock(); });
+          });
+        });
+      });
+    };
+    acts.append(set);
+    if (lockState.pin) {
+      var off = mk('button', 'link', tr('Retirer le code')); off.style.color = '#FF9DA1';
+      off.onclick = function () {
+        withPin(function (cur) {
+          return api('POST', '/api/lock/pin', { pin: '', current: cur }).then(function () {
+            pinCache = ''; return loadLock();
+          }).then(function () { if (tab === 'cats') loadCats(); else loadBouquets(true); });
+        });
+      };
+      acts.append(off);
+    }
+    box.append(txt, acts);
   }
 
   /* ---------- glisser-déposer ---------- */
@@ -296,6 +372,7 @@
   function bqUnit() { return tr(KIND_LABEL[bqKind]); }
 
   function loadBouquets(keep) {
+    loadLock();
     return api('GET', '/api/bouquets?kind=' + bqKind).then(function (d) {
       bqs = d.bouquets;
       if (!keep || !bqs.some(function (b) { return b.bouquet === curBq; })) curBq = bqs.length ? bqs[0].bouquet : null;
@@ -332,7 +409,7 @@
           return api('DELETE', '/api/bouquets?id=' + b.bouquet).then(function () { curBq = null; loadBouquets(); });
         }, tr('Supprimer'));
       };
-      acts.append(up, dn, rn, del);
+      acts.append(up, dn, rn, lockButton(bqKind, 'b' + b.bouquet, renderBouquets), del);
       ul.append(li);
     });
   }
@@ -542,7 +619,8 @@
       if (used[c.num] > 1) { num.style.color = '#FFB37A'; num.title = tr('Ce numéro est utilisé par plusieurs chaînes'); }
       var wrap = mk('div'); wrap.style.cssText = 'flex:1;min-width:0;display:flex;flex-direction:column;gap:3px';
       var name = mk('input', 'edit title'); name.value = c.name; name.setAttribute('aria-label', tr('Nom de la chaîne'));
-      wrap.append(name, mk('span', 'orig', tr('Fournisseur : n° {n} · {o}', { n: c.orig_num, o: c.orig_name }) + (c.cat_name ? ' · ' + c.cat_name : '')));
+      wrap.append(name, mk('span', 'orig', c.manual ? tr('Ajoutée à la main · n° {n} · {o}', { n: c.orig_num, o: c.orig_name })
+        : tr('Fournisseur : n° {n} · {o}', { n: c.orig_num, o: c.orig_name }) + (c.cat_name ? ' · ' + c.cat_name : '')));
       var state = mk('span', 'ok', '');
       li.append(srcNode(c), logoNode(c), num, wrap);
       tags(c).forEach(function (t) { li.append(t); });
@@ -551,6 +629,17 @@
       var lg = mk('button', 'btn small', tr('Logo'));
       lg.onclick = function () { editLogo(c); };
       li.append(lg);
+      if (c.manual) {
+        var lk = mk('button', 'link', tr('Lien'));
+        lk.onclick = function () { editManualUrl(c); };
+        var del = mk('button', 'link danger', tr('Supprimer'));
+        del.onclick = function () {
+          confirmBox(tr('Supprimer « {n} »', { n: c.name }), tr('Cette chaîne ajoutée à la main sera retirée de Luciole, de vos bouquets et de vos favoris.'), function () {
+            return api('POST', '/api/manual/remove', { ids: [c.id] }).then(function () { fillCatSelect('ccat').then(loadChans); });
+          }, tr('Supprimer'));
+        };
+        li.append(lk, del);
+      }
       if (c.custom) {
         var r = mk('button', 'link', tr('Rétablir'));
         r.onclick = function () { send(c, null, null, state); };
@@ -587,6 +676,67 @@
       setTimeout(loadChans, 600);
     }).catch(function (e) { state.textContent = ''; fail('csummary')(e); });
   }
+  /* chaînes ajoutées à la main : un lien, ou une liste M3U (adresse ou texte collé) */
+  function editManualUrl(c) {
+    api('GET', '/api/manual').then(function (list) {
+      var m = list.filter(function (x) { return x.id === c.id; })[0];
+      askText(tr('Lien de « {n} »', { n: c.name }), tr('Adresse du flux'), m ? m.url : '', function (v) {
+        return api('POST', '/api/manual/edit', { id: c.id, url: v }).then(function () { say('csummary', tr('Lien enregistré.')); });
+      }, tr('Enregistrer'));
+    }).catch(fail('csummary'));
+  }
+  $('man-add').onclick = function () {
+    api('GET', '/api/bouquets?kind=live').then(function (d) {
+      var mode = 'one';
+      dialog(tr('Ajouter une chaîne'), function (box) {
+        var tabs = mk('div', 'tabs'); tabs.style.margin = '0 0 6px';
+        var t1 = mk('button', '', tr('Un lien')), t2 = mk('button', '', tr('Une liste M3U'));
+        tabs.append(t1, t2); box.append(tabs);
+        var one = mk('div'), many = mk('div');
+        function field(parent, label, type, ph) {
+          parent.append(mk('label', 'lbl', label));
+          var i = mk(type === 'area' ? 'textarea' : 'input', 'edit w100');
+          if (type !== 'area') i.type = type; if (ph) i.placeholder = ph;
+          parent.append(i); return i;
+        }
+        var f = {
+          name: field(one, tr('Nom'), 'text', tr('Ma chaîne')),
+          url: field(one, tr('Adresse du flux'), 'url', 'https://…/index.m3u8'),
+          logo: field(one, tr('Logo (adresse d’une image, facultatif)'), 'url', 'https://…/logo.png'),
+          num: field(one, tr('Numéro (facultatif)'), 'number', ''),
+          list: field(many, tr('Adresse de la liste M3U'), 'url', 'https://…/liste.m3u'),
+          text: field(many, tr('… ou collez son contenu ici'), 'area', '#EXTM3U\n#EXTINF:-1 tvg-logo="…",Nom\nhttps://…')
+        };
+        f.text.style.minHeight = '160px';
+        many.append(mk('p', 'help', tr('Chaque entrée #EXTINF devient une chaîne, avec son nom et son logo. Les liens déjà présents sont ignorés.')));
+        box.append(one, many);
+        box.append(mk('label', 'lbl', tr('Ajouter aussi au bouquet')));
+        var sel = mk('select', 'w100'); sel.append(mk('option', '', tr('Aucun (seulement « Mes liens »)')));
+        sel.options[0].value = '';
+        (d.bouquets || []).forEach(function (b) { var o = mk('option', '', b.name); o.value = b.bouquet; sel.append(o); });
+        box.append(sel);
+        function show(m) {
+          mode = m; one.hidden = m !== 'one'; many.hidden = m !== 'many';
+          t1.setAttribute('aria-selected', m === 'one'); t2.setAttribute('aria-selected', m === 'many');
+        }
+        t1.onclick = function () { show('one'); }; t2.onclick = function () { show('many'); };
+        show('one');
+        f.sel = sel; return f;
+      }, function (f) {
+        var bq = f.sel.value ? Number(f.sel.value) : 0;
+        var req = mode === 'one'
+          ? api('POST', '/api/manual/add', { name: f.name.value.trim(), url: f.url.value.trim(), logo: f.logo.value.trim(),
+                                            num: f.num.value.trim(), bouquet: bq })
+          : api('POST', '/api/manual/import', { url: f.list.value.trim(), text: f.text.value, bouquet: bq });
+        return req.then(function (r) {
+          say('csummary', r.added ? tr('{n} chaîne(s) ajoutée(s) dans « Mes liens ».', { n: r.added })
+                                  : tr('Rien de nouveau : ces liens sont déjà là.'));
+          $('ccat').value = 'manual';
+          return fillCatSelect('ccat').then(function () { $('ccat').value = 'manual'; return loadChans(); });
+        });
+      }, tr('Ajouter'));
+    }).catch(fail('csummary'));
+  };
   $('num-reset').onclick = function () {
     confirmBox(tr('Numéros d’origine'), tr('Tous les numéros que vous avez choisis seront oubliés. Les noms sont conservés.'), function () {
       return api('POST', '/api/numbers/reset', {}).then(loadChans);
@@ -722,6 +872,17 @@
           api('POST', '/api/movie/version', { id: it.vod, file: it.pref ? 0 : it.id }).then(loadMediaItems).catch(fail('mcount'));
         };
         li.append(vb);
+      }
+      if (it.kind === 'movie' && it.versions > 1) {
+        var nb = mk('button', 'link', tr('Nommer la version'));
+        nb.onclick = function () {
+          askText(tr('Nom de cette version'), it.edition ? tr('Lu dans le nom du fichier : « {e} ». Laissez vide pour le garder.', { e: it.edition })
+                                                        : tr('Par exemple « Version longue » ou « Copie 35 mm ». Laissez vide pour n’en mettre aucun.'),
+            it.vlabel, function (v) {
+              return api('POST', '/api/movie/version/label', { file: it.id, label: v }).then(loadMediaItems);
+            }, tr('Enregistrer'));
+        };
+        li.append(nb);
       }
       var fix = mk('button', 'link', tr('Corriger la fiche'));
       fix.onclick = function () { pickMatch(it); };
@@ -1083,7 +1244,7 @@
     setTimeout(ctx.kind === 'live' ? loadChans : loadItems, 400);
   }
   function sendArtFile(ctx, slot, file, node) {
-    var o = { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file };
+    var o = { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-Luciole-Admin': '1' }, body: file };
     if (token) o.headers['X-Luciole-Token'] = token;
     fetch('/api/art/upload?kind=' + ctx.kind + '&id=' + ctx.id + '&slot=' + slot, o)
       .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error); return d; }); })
@@ -1104,6 +1265,7 @@
       box.parentNode.classList.add('wide');
       var q = mk('input', 'edit w100'); q.type = 'search'; q.value = ctx.data.name || '';
       var res = mk('div', wide ? 'tmdb wide' : 'tmdb'); var state = mk('p', 'help', '');
+      if (slot === 'logo') res.classList.add('logos');
       var back = mk('button', 'btn small', tr('← Autres titres')); back.style.display = 'none';
       function use(url) {
         api('POST', '/api/art/fetch', { kind: ctx.kind, id: ctx.id, slot: slot, url: url })
@@ -1133,7 +1295,7 @@
         state.textContent = tr('Recherche…'); res.textContent = ''; back.style.display = 'none';
         api('GET', '/api/art/search?kind=' + ctx.kind + '&q=' + encodeURIComponent(q.value.trim()))
           .then(function (d) {
-            var found = d.results.filter(function (r) { return slot === 'backdrop' ? r.backdrop_url : r.poster_url; });
+            var found = d.results.filter(function (r) { return slot === 'backdrop' ? r.backdrop_url : slot === 'logo' ? true : r.poster_url; });
             if (found.length === 1) return images(found[0]);   // un seul titre : on montre tout de suite ses images
             state.textContent = found.length ? tr('Choisissez le titre pour voir toutes ses images.') : tr('Rien trouvé sous ce titre.');
             found.forEach(function (r) {
@@ -1170,10 +1332,16 @@
         box.append(arts);
         ctx.poster = artBox(arts, tr('Jaquette'), 'poster', ctx);
         ctx.backdrop = artBox(arts, tr('Fond'), 'backdrop', ctx);
-        return { name: name, plot: plot };
+        ctx.logo = artBox(arts, tr('Logo du titre'), 'logo', ctx);
+        box.append(mk('p', 'help', tr('Logo du titre : sans choix ici, Luciole prend le fichier clearlogo.png posé à côté, sinon celui de TMDB.')));
+        box.append(mk('label', 'lbl', tr('Bande-annonce (lien YouTube)')));
+        var trailer = mk('input', 'edit w100'); trailer.type = 'url'; trailer.value = d.trailer || '';
+        trailer.placeholder = 'https://www.youtube.com/watch?v=…';
+        box.append(trailer, mk('p', 'help', tr('Vide : celle du fournisseur ou de TMDB.')));
+        return { name: name, plot: plot, trailer: trailer };
       }, function (c) {
         return api('POST', '/api/items/edit', {
-          kind: iKind, id: it.id, name: c.name.value.trim(), plot: c.plot.value.trim()
+          kind: iKind, id: it.id, name: c.name.value.trim(), plot: c.plot.value.trim(), trailer: c.trailer.value.trim()
         }).then(loadItems);
       }, tr('Enregistrer'));
     }).catch(fail('isummary'));
@@ -1371,6 +1539,7 @@
   /* ================= BOUQUETS DU FOURNISSEUR ================= */
   function shown() { return cats.filter(function (c) { return norm(c.name + ' ' + c.orig_name).indexOf(filter) > -1; }); }
   function loadCats() {
+    loadLock();
     return api('GET', '/api/categories?all=1&kind=' + catKind).then(function (d) {
       cats = d.filter(function (c) { return !c.own; }); renderCats();
     }).catch(fail('summary'));
@@ -1391,7 +1560,7 @@
           return api('POST', '/api/categories/rename', { kind: catKind, id: c.id, name: v }).then(loadCats);
         });
       };
-      li.append(box, srcNode(c), name, mk('span', 'count', tr('{n} titres', { n: c.count })));
+      li.append(box, srcNode(c), name, mk('span', 'count', tr('{n} titres', { n: c.count })), lockButton(catKind, c.id, renderCats));
       if (c.name !== c.orig_name) {
         var r = mk('button', 'link', tr('Nom d’origine'));
         r.onclick = function () { api('POST', '/api/categories/rename', { kind: catKind, id: c.id, name: null }).then(loadCats); };

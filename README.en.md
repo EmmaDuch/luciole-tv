@@ -44,13 +44,13 @@ Luciole comes in two parts:
 
 ## Installing the server
 
-Both files to install, `luciole-server-1.0.0.tar.gz` (the server) and `Luciole.wgt` (the TV app),
+Both files to install, `luciole-server-1.0.1.tar.gz` (the server) and `Luciole.wgt` (the TV app),
 are on the [Releases](https://github.com/EmmaDuch/luciole-tv/releases) page.
 
 On a Debian 12/13 machine (Proxmox LXC container, Raspberry Pi OS 64-bit, or PC), as root:
 
 ```sh
-tar xzf luciole-server-1.0.0.tar.gz && cd luciole-server
+tar xzf luciole-server-1.0.1.tar.gz && cd luciole-server
 sh install.sh                       # LUCIOLE_TZ=Europe/London sh install.sh to set another time zone
 nano /etc/luciole/config.toml       # your subscriptions, see below
 systemctl start luciole luciole-sync.timer

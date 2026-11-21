@@ -47,14 +47,14 @@ Le nom `luciole` donne directement l'adresse `luciole.local`. Un conteneur exist
 Envoyez l'archive sur l'hôte Proxmox, puis poussez-la dans le conteneur (depuis votre ordinateur) :
 
 ```sh
-scp luciole-server-1.0.0.tar.gz root@192.168.1.10:/root/
-ssh root@192.168.1.10 "pct push 105 /root/luciole-server-1.0.0.tar.gz /root/luciole-server-1.0.0.tar.gz"
+scp luciole-server-1.0.1.tar.gz root@192.168.1.10:/root/
+ssh root@192.168.1.10 "pct push 105 /root/luciole-server-1.0.1.tar.gz /root/luciole-server-1.0.1.tar.gz"
 ```
 
 Puis, dans la console du conteneur (`pct enter 105`) :
 
 ```sh
-cd /root && tar xzf luciole-server-1.0.0.tar.gz && cd luciole-server
+cd /root && tar xzf luciole-server-1.0.1.tar.gz && cd luciole-server
 sh install.sh
 nano /etc/luciole/config.toml        # vos abonnements, voir plus bas
 systemctl start luciole luciole-sync.timer
@@ -65,7 +65,7 @@ systemctl start luciole luciole-sync.timer
 Sur un Raspberry Pi OS 64 bits ou une Debian fraîchement installée, en root :
 
 ```sh
-cd /root && tar xzf luciole-server-1.0.0.tar.gz && cd luciole-server
+cd /root && tar xzf luciole-server-1.0.1.tar.gz && cd luciole-server
 sh install.sh
 nano /etc/luciole/config.toml
 systemctl start luciole luciole-sync.timer
@@ -204,6 +204,14 @@ Un numéro en orange est utilisé par plusieurs chaînes. **Numéros d'origine**
 
 ![Les chaînes](../images/24-web-chaines.png)
 
+**Ajouter une chaîne** ajoute un flux qui ne vient pas d'un abonnement : soit **un lien** (nom, adresse
+du flux `http(s)://…`, logo et numéro facultatifs), soit **une liste M3U** (son adresse, ou son contenu collé ;
+chaque entrée `#EXTINF` devient une chaîne avec son nom et son logo, les liens déjà présents sont ignorés).
+Ces chaînes vont dans le bouquet **Mes liens**, et aussi, si vous le choisissez, dans un de vos bouquets.
+Ensuite elles se gèrent comme les autres : nom, numéro, logo, guide, favoris, bouquets.
+Sur leur ligne, **Lien** change l'adresse du flux et **Supprimer** les retire.
+Le téléviseur lit le flux tel quel : il doit être en clair (pas de DRM) et dans un format que la TV sait lire (HLS, MPEG-TS…).
+
 ### Logos
 
 Bouton **Logo** sur une chaîne : une adresse web ou un fichier du PC. **Rétablir** revient au logo du fournisseur,
@@ -221,10 +229,14 @@ c'est le cas où l'on remplace le logo à la main, de préférence par un PNG tr
 Tout le catalogue, avec un sélecteur Films / Séries, une recherche et un filtre par catégorie.
 Tapez un titre puis Entrée pour le fixer ; videz le champ ou **Rétablir** pour revenir aux règles de nettoyage.
 
-**Modifier** ouvre la fiche : titre, résumé, jaquette, fond. Pour une image, trois provenances :
+**Modifier** ouvre la fiche : titre, résumé, jaquette, fond, logo du titre, bande-annonce. Pour une image, trois provenances :
 une **adresse web**, **TMDB** (avec une clé), ou un fichier **depuis le PC**. L'image est copiée sur le serveur.
 Avec TMDB, choisissez le titre : toutes ses jaquettes ou tous ses fonds s'affichent, les fonds sans texte en premier.
 **Rétablir** revient au fournisseur.
+
+La fiche a aussi un **logo du titre** (l'image transparente qui remplace le titre écrit sur la TV) et une
+**bande-annonce** (lien YouTube). Sans choix à la main, Luciole prend le `clearlogo.png` posé à côté du fichier,
+sinon le logo TMDB dans votre langue, puis en anglais (avec une clé TMDB) ; et la bande-annonce du fournisseur ou de TMDB.
 
 Les corrections sont rangées à part du catalogue : une synchronisation ne les écrase pas.
 Une image remplacée s'affiche tout de suite, y compris sur le téléviseur.
@@ -345,6 +357,11 @@ Le téléviseur démarre la meilleure version qu'il sait lire (dans la limite ch
 la fiche permet d'en choisir une autre. Dans la liste **Films** de la section Médiathèque, chaque version l'indique,
 avec **Démarrer celle-ci** pour la fixer. Deux fichiers regroupés à tort se séparent avec **Corriger la fiche**.
 
+Chaque version porte sa définition, son codec, sa durée et le nom de son **édition**, lu dans le nom du fichier :
+`{edition-The Remus Cut}` (Plex, Jellyfin), `Film (2024) - Director's Cut`, ou ce qui est entre parenthèses ou crochets
+quand ce n'est ni l'année ni une mention technique : `Alien - Romulus (The Remus Cut) (2024).mkv`,
+`Matrix [Version 35 MM] (1999).mkv`. Si le nom ne convient pas, **Nommer la version** le remplace.
+
 **Bonus, bandes-annonces, images.** L'arborescence de Kodi, Plex et Jellyfin est comprise :
 
 ```
@@ -442,7 +459,7 @@ Après chaque modification : `systemctl restart luciole`.
 
 - `/etc/luciole/config.toml` : la configuration, avec les identifiants des abonnements ;
 - `/var/lib/luciole/luciole.db` : catalogue, guide, historique, Bibliothèque, listes et réglages ;
-- `/var/lib/luciole/img/` : le cache des images (peut être supprimé, il se reconstruit) ;
+- `/var/lib/luciole/img/` : le cache des images. Une image qui n'a pas servi depuis 30 jours y est effacée à la synchronisation ; le dossier peut aussi être supprimé, il se reconstruit ;
 - `/var/lib/luciole/art/` : les jaquettes, fonds et logos que vous avez choisis. **Celui-là ne se reconstruit pas** ;
 - vos fichiers vidéo ne sont jamais copiés ni modifiés : le serveur les lit sur place, en lecture seule.
 

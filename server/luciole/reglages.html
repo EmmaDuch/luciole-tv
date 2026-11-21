@@ -109,6 +109,12 @@
   .artslot .art { display:block; width:100%; max-width:220px; aspect-ratio:2/3; object-fit:cover;
                   border-radius:10px; background:#262C38; margin-bottom:8px; }
   .artslot .art.wide { max-width:100%; aspect-ratio:16/9; }
+  .lockbox { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:14px 16px; margin:0 0 14px;
+    border:1px solid var(--line); border-radius:12px; background:var(--card); }
+  .lockbox small { display:block; color:var(--muted); margin-top:4px; }
+  .lockbox .acts { display:flex; gap:12px; align-items:center; flex-shrink:0; }
+  .lockbtn { white-space:nowrap; color:var(--muted); }
+  .lockbtn.on { color:var(--accent); }
   .artslot .art.logo { max-width:360px; aspect-ratio:16/9; object-fit:contain; padding:24px; box-sizing:border-box; }
   .artslot .tools { flex-wrap:wrap; gap:6px; }
   .artslot .tools .btn { padding:4px 9px; font-size:13px; }
@@ -126,6 +132,8 @@
   dialog.wide .tmdb { grid-template-columns: repeat(6, 1fr); max-height:60vh; }
   dialog.wide .tmdb.wide { grid-template-columns: repeat(3, 1fr); }
   .tmdb.wide .tcard img { aspect-ratio:16/9; }
+  dialog.wide .tmdb.logos { grid-template-columns: repeat(3, 1fr); }
+  .tmdb.logos .tcard img { aspect-ratio:16/9; object-fit:contain; padding:14px; box-sizing:border-box; background:#2a2f3a; }
   .w100 { width:100%; }
   #t-tv .cols { grid-template-columns: 1fr 1fr; }
   #t-tv .row { margin:10px 0; }
@@ -286,8 +294,9 @@
       <input id="cq" type="search" placeholder="Rechercher une chaîne" aria-label="Rechercher une chaîne">
       <select id="ccat" aria-label="Bouquet"><option value="all">Tous les bouquets</option></select>
       <button class="btn" id="num-reset">Numéros d'origine</button>
+      <button class="btn main" id="man-add">Ajouter une chaîne</button>
     </div>
-    <p class="help">Modifiez le numéro ou le nom puis appuyez sur Entrée. Un champ vide revient à la valeur du fournisseur.</p>
+    <p class="help">Modifiez le numéro ou le nom puis appuyez sur Entrée. Un champ vide revient à la valeur du fournisseur. « Ajouter une chaîne » accepte un lien de flux ou une liste M3U ; ces chaînes vont dans le bouquet « Mes liens ».</p>
     <p class="summary" id="csummary"></p>
     <ul id="clist"></ul>
   </section>
@@ -476,7 +485,8 @@
       <button class="btn" id="showAll">Tout afficher</button>
       <button class="btn" id="hideAll">Tout masquer</button>
     </div>
-    <p class="help">Case cochée = visible sur la TV. Cliquez sur le nom pour renommer.</p>
+    <div id="lockbox" class="lockbox"></div>
+    <p class="help">Case cochée = visible sur la TV. Cliquez sur le nom pour renommer. « Verrouiller » demande le code parental sur la TV.</p>
     <p class="summary" id="summary"></p>
     <ul id="list"></ul>
   </section>

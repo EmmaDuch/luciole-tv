@@ -11,6 +11,7 @@ renommer les catégories, les réordonner, et déplacer chaque titre.
 import json
 import re
 
+from . import lock
 from .common import norm, now
 
 # Genres TMDB (films et séries) : identifiant -> (français, anglais)
@@ -231,7 +232,7 @@ def items(db, cat=None, kind=None, sort="added"):
             where += " AND i.cat = ?"
             args.append(cat)
         for r in db.execute(f"SELECT t.*, i.cat AS lib_cat, i.added AS lib_added FROM lib_item i "
-                            f"JOIN {table} t ON t.id = i.id WHERE {where}", args):
+                            f"JOIN {table} t ON t.id = i.id WHERE {where} AND {lock.sql(table, 't.cat')}", args):
             out.append((k, r))
     if sort == "name":
         out.sort(key=lambda x: x[1]["norm"] or "")

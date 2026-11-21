@@ -314,6 +314,10 @@ async def web_shot(pg, num, name, path, sel, actions):
             await pg.wait_for_timeout(1500)
         elif kind == "blur":
             await pg.evaluate("document.activeElement && document.activeElement.blur()")
+        elif kind == "type":
+            await pg.keyboard.type(arg, delay=60)
+        elif kind == "wait":
+            await pg.wait_for_timeout(int(arg))
     target = os.path.join(OUT, "%s-%s.png" % (num, name))
     if sel is None:
         await pg.screenshot(path=target)
